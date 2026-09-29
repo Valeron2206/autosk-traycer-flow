@@ -330,6 +330,16 @@ const crashStep = (points = POINTS, ok = true) => ({
   ok,
   summary: ok ? { passed: points.length, failed: 0, skipped: 0, cases: points.map((point) => ({ point, outcome: "created" })) } : null,
 });
+// Debt 13f (R9-11): the creation harness prints the names of the checks that passed,
+// and F002's designed fault is one of them: the built daemon is SIGKILLed, restarted,
+// and the same creation key answers `existing_same_binding`.
+const RESTART_CHECK = "SIGKILL restart preserves creation identity";
+const CREATION_CHECKS = ["compiled package returns exact creation receipt", "ten real CLI retries return one task", RESTART_CHECK, "legacy CLI output remains available"];
+const creationStep = (checks = CREATION_CHECKS, ok = true) => ({
+  step: "harness:creation",
+  ok,
+  summary: ok ? { passed: checks.length, failed: 0, skipped: 0, checks } : null,
+});
 const identityStep = (evidence = { fault: "F004", control: "resumed under the admitted digest" }, ok = true) => ({
   step: "harness:identity",
   ok,
@@ -337,16 +347,22 @@ const identityStep = (evidence = { fault: "F004", control: "resumed under the ad
 });
 
 test("a daemon group is covered only by its harness's own run, never by the table", () => {
-  const ran = harnessCoverage([{ step: "prepare", ok: true }, crashStep(), identityStep()]);
-  for (const id of ["F001", "F002", "F003"]) {
+  const ran = harnessCoverage([{ step: "prepare", ok: true }, creationStep(), crashStep(), identityStep()]);
+  for (const id of ["F001", "F003"]) {
     assert.equal(ran[id].harness, "crash", id);
     assert.equal(ran[id].detected, true, id);
     // The crash harness injects at a point in a write and asks no control.
     assert.equal(ran[id].control, null, id);
   }
-  // F001's run is its designed fault; F002's and F003's is a substitute (debt 12e).
+  // F001's run is its designed fault; F003's is a substitute (debt 12e).
   assert.equal(coverageState(group("F001"), ran.F001), "covered_without_control");
-  for (const id of ["F002", "F003"]) assert.equal(coverageState(group(id), ran[id]), "covered_by_substitute_fault", id);
+  assert.equal(coverageState(group("F003"), ran.F003), "covered_by_substitute_fault");
+  // Debt 13f (R9-11): F002's designed fault is the retry after the daemon process exited,
+  // and the run that performs it is the creation harness's, not the crash harness's.
+  assert.equal(ran.F002.harness, "creation");
+  assert.equal(ran.F002.detected, true);
+  assert.equal(ran.F002.control, null);
+  assert.equal(coverageState(group("F002"), ran.F002), "covered_without_control");
   assert.equal(ran.F004.detected, true);
   assert.equal(ran.F004.control, true);
   assert.equal(coverageState(group("F004"), ran.F004), "covered_by_real_fault");
@@ -355,9 +371,10 @@ test("a daemon group is covered only by its harness's own run, never by the tabl
   for (const id of ["F001", "F002", "F003", "F004"]) assert.equal(ran[id].evidence, COVERAGE[id].evidence, id);
 
   // A harness that failed covers nothing, and its rows say it failed.
-  const failed = harnessCoverage([crashStep(POINTS, false), identityStep(undefined, false)]);
+  const failed = harnessCoverage([creationStep(CREATION_CHECKS, false), crashStep(POINTS, false), identityStep(undefined, false)]);
   for (const id of ["F001", "F002", "F003", "F004"]) assert.equal(coverageState(group(id), failed[id]), "not_covered", id);
   assert.equal(failed.F001.evidence, "the crash harness step failed");
+  assert.equal(failed.F002.evidence, "the creation harness step failed");
   assert.equal(failed.F004.evidence, "the identity harness step failed");
   // A harness that never ran names nothing: no entry, so its rows name no harness.
   const none = harnessCoverage([{ step: "prepare", ok: false }]);
@@ -366,14 +383,18 @@ test("a daemon group is covered only by its harness's own run, never by the tabl
     assert.equal(coverageState(group(id), none[id]), "not_covered", id);
   }
   // A group is detected by the points its harness reports for it, not by the step alone.
-  const partial = harnessCoverage([crashStep(POINTS.filter((point) => !point.startsWith("task.")))]);
+  const partial = harnessCoverage([crashStep(POINTS.filter((point) => !point.startsWith("activation.")))]);
   assert.equal(partial.F001.detected, true);
-  assert.equal(partial.F002.detected, false);
+  assert.equal(partial.F003.detected, false);
   // Both points of a pair, not one of them (review of 11f, L3).
   const half = harnessCoverage([crashStep(["reservation.before", ...POINTS.slice(2)])]);
   assert.equal(half.F001.detected, false);
   assert.equal(half.F001.evidence, "the crash harness passed without reporting reservation.after");
-  assert.equal(half.F002.detected, true);
+  assert.equal(half.F003.detected, true);
+  // The crash harness's kills of the store writer at the task record are not F002's fault (13f):
+  // whatever the crash harness reports, it gives F002 nothing.
+  assert.equal(harnessCoverage([crashStep()]).F002, undefined);
+  assert.equal(coverageState(group("F002"), harnessCoverage([crashStep(), identityStep()]).F002), "not_covered");
   // The identity harness answers for F004 only, and its control is the one it reports.
   const other = harnessCoverage([identityStep({ fault: "F009", control: "x" })]).F004;
   assert.equal(other.detected, false);
@@ -386,6 +407,51 @@ test("a daemon group is covered only by its harness's own run, never by the tabl
   assert.equal(coverageState(group("F004"), empty), "covered_without_control");
 });
 
+test("the creation harness covers F002 only when its own summary names the restart check that passed (debt 13f, ADR-100)", () => {
+  // A passing step is not the fault: the summary must name the check that kills the
+  // built daemon, restarts it and repeats the key. A count of passes names nothing.
+  const countOnly = harnessCoverage([{ step: "harness:creation", ok: true, summary: { passed: 8, failed: 0, skipped: 0 } }]).F002;
+  assert.equal(countOnly.harness, "creation");
+  assert.equal(countOnly.detected, false);
+  assert.equal(coverageState(group("F002"), countOnly), "not_covered");
+  const without = harnessCoverage([creationStep(CREATION_CHECKS.filter((name) => name !== RESTART_CHECK))]).F002;
+  assert.equal(without.detected, false);
+  assert.equal(without.evidence, `the creation harness passed without reporting "${RESTART_CHECK}"`);
+  // A step that did not pass reports nothing, whatever its summary carries.
+  const notOk = harnessCoverage([{ ...creationStep(), ok: false }]).F002;
+  assert.equal(notOk.detected, false);
+  assert.equal(notOk.evidence, "the creation harness step failed");
+  // The creation harness asks no control for it (yet): covered, and not paired.
+  const ran = harnessCoverage([creationStep()]).F002;
+  assert.equal(ran.control, null);
+  assert.equal(coverageState(group("F002"), ran), "covered_without_control");
+  // The other creation checks are no group's fault.
+  for (const id of ["F001", "F003", "F004"]) assert.equal(harnessCoverage([creationStep()])[id], undefined, id);
+});
+
+test("F002's record names the harness that performs its fault, and the harness has that check (debt 13f, R9-11)", async () => {
+  assert.equal(COVERAGE.F002.harness, "creation");
+  assert.equal(COVERAGE.F002.check, RESTART_CHECK);
+  // The clean-room run runs that harness under this name.
+  const { io, calls } = stubbedSteps({ identities: [IDENTITY] });
+  await cleanRoomRun({ io });
+  assert.ok(calls.includes(`harness:${COVERAGE.F002.harness}`));
+  // And the harness's source does what the fault says: SIGKILL the built daemon,
+  // start it again, repeat the same creation key, expect the same task back.
+  const source = await readFile(path.join(ROOT, "scripts/verify-autosk-creation.mjs"), "utf8");
+  const at = source.indexOf(`check("${COVERAGE.F002.check}"`);
+  assert.ok(at > 0, "the creation harness has no check with F002's name");
+  const body = source.slice(at, source.indexOf("\n  });", at));
+  assert.match(body, /stopDaemon\("SIGKILL"\)/u);
+  assert.match(body, /startDaemon\(\)/u);
+  assert.match(body, /runInSession\(\[\{ args, cwd: project \}\]\)/u);
+  assert.match(body, /existing_same_binding/u);
+  assert.ok(body.indexOf("stopDaemon") < body.indexOf("startDaemon") && body.indexOf("startDaemon") < body.indexOf("runInSession"));
+  // The run learns which checks passed from the harness's last line.
+  assert.match(source, /console\.log\(JSON\.stringify\(\{\s*passed,\s*failed: 0,\s*skipped: 0,\s*checks,/u);
+  assert.match(source, /checks\.push\(name\)/u);
+});
+
 test("the coverage report of the current matrix counts only the designed fault on the product path as covered by a real fault", () => {
   // Every case detected and every control silent, as the shipped run reports.
   const faults = {
@@ -394,21 +460,23 @@ test("the coverage report of the current matrix counts only the designed fault o
       .map((entry) => ({ id: entry.id, detected: true, control: true, detail: `${entry.id} detail` })),
   };
   const report = coverageReport(matrix, {
-    ...harnessCoverage([crashStep(), identityStep()]),
+    ...harnessCoverage([creationStep(), crashStep(), identityStep()]),
     ...faultCoverage(faults),
   });
   const byState = (state) => report.rows.filter((row) => row.state === state).map((row) => row.id);
   const byKind = (kind) => matrix.groups.filter((entry) => entry.injection === kind).map((entry) => entry.id);
-  assert.deepEqual(byState("covered_without_control"), ["F001"]);
-  assert.deepEqual(byState("covered_by_substitute_fault"), ["F002", "F003"]);
+  // Debt 13f: F002's designed fault is run by the creation harness, so it is the designed
+  // fault on the product path with no control paired (as F001); F003 is the one substitute.
+  assert.deepEqual(byState("covered_without_control"), ["F001", "F002"]);
+  assert.deepEqual(byState("covered_by_substitute_fault"), ["F003"]);
   assert.deepEqual(byState("covered_by_host_function"), byKind("measured_observation"));
   assert.deepEqual(byState("covered_by_written_observation"), byKind("written_observation"));
   // Debt 12e: the gate's count was 6 (F004 and the five measured groups); it is F004.
   assert.deepEqual(byState("covered_by_real_fault"), ["F004"]);
   assert.deepEqual(report.counts, {
     covered_by_real_fault: 1,
-    covered_without_control: 1,
-    covered_by_substitute_fault: 2,
+    covered_without_control: 2,
+    covered_by_substitute_fault: 1,
     covered_by_host_function: byKind("measured_observation").length,
     covered_by_written_observation: byKind("written_observation").length,
     control_failed: 0,

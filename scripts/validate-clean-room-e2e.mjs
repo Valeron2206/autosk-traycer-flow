@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { COVERAGE_STATES, INJECTION_KINDS } from "./lib/clean-room-coverage.mjs";
+import { COVERAGE, COVERAGE_STATES, INJECTION_KINDS } from "./lib/clean-room-coverage.mjs";
 import { validateJsonSchema } from "./validate-planning-ref-design.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -291,6 +291,24 @@ function designErrors(group) {
 }
 
 /**
+ * The harness that performs a daemon group's fault, named by the group itself
+ * (debt 13f, R9-11).
+ *
+ * The coverage rule credits F001–F004 to the daemon harness that makes their
+ * fault (`COVERAGE`), and F002 was credited to the crash harness — which kills
+ * the native store writer and never restarts the daemon — while the creation
+ * harness's own run does what F002 designs. A group the rule credits to a
+ * harness says in its `injection_note` "the <harness> harness", so the record
+ * and the rule cannot give one fault to two harnesses; that the harness has
+ * the check the rule reads is held by `test/runtime-clean-room.test.mjs`.
+ */
+function harnessErrors(group) {
+  const harness = COVERAGE[group.id]?.harness;
+  if (!harness || group.injection_note.includes(`the ${harness} harness`)) return [];
+  return [`${group.id} (${group.boundary}): injection_note does not name the ${harness} harness that scripts/lib/clean-room-coverage.mjs credits the group to`];
+}
+
+/**
  * Every error the fault matrix has, as messages; empty when it holds.
  *
  * The matrix must satisfy the closed schema (a schema failure returns at once,
@@ -330,6 +348,7 @@ export function validateMatrix(matrix, schema, { harnessSource } = {}) {
     }
     errors.push(...injectionErrors(group, harness));
     errors.push(...designErrors(group));
+    errors.push(...harnessErrors(group));
   }
 
   // A boundary with no fault group is a boundary nobody attacked.

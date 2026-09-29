@@ -262,10 +262,15 @@ for (const dir of env.PATH.split(":")) {
 }
 
 let passed = 0;
+// The names of the checks that passed, printed with the summary: the clean-room
+// run credits a fault group to this harness only for a check its record names
+// (F002 is "SIGKILL restart preserves creation identity"), never for a count.
+const checks = [];
 const check = (name, fn) => Promise.resolve()
   .then(fn)
   .then(() => {
     passed += 1;
+    checks.push(name);
     console.log(`PASS ${name}`);
   });
 const key = `flow:${"a".repeat(64)}`;
@@ -367,6 +372,7 @@ try {
     passed,
     failed: 0,
     skipped: 0,
+    checks,
     runtime: process.version,
     platform: process.platform,
     arch: process.arch,

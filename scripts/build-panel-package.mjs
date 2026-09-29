@@ -1291,9 +1291,12 @@ group that is not the designed fault on the product path names in the matrix
 (\`product_path_owner\`) what must exist before #36 can convert it. A group
 whose guard belongs to a host driver or the helper becomes \`real_path\` by a
 decision, when the extension entry point (#18) reaches that driver or helper and
-a harness meets the fault through it. \`F001\` has no owner and does not count
-either: it is the designed fault on the product path, and counts once #36's
-crash harness asks a control.
+a harness meets the fault through it. \`F001\` and \`F002\` have no owner and do
+not count either: each is the designed fault on the product path, and counts
+once #36's harness pairs a control. \`F001\`'s harness is the crash harness.
+\`F002\`'s run is the creation harness's (\`scripts/verify-autosk-creation.mjs\`),
+which kills the built daemon, restarts it and repeats the creation key; it pairs
+no control and emits none of the four proofs, and #36 adds both to that run.
 
 ${matrix.groups.filter((group) => group.product_path_owner).map((group) => `- \`${group.id}\` — ${group.product_path_owner}`).join('\n')}
 
@@ -1323,8 +1326,8 @@ ${countWord(gitFixtureOnly.length)} more ran them only to build the fixture (${g
 
 Most groups are also **paired with a control** — the same guard, asked about the
 state without the fault, has to stay silent — and the rows marked \`not paired\`
-are not: the crash harness injects at a point in a write and never asks the
-un-faulted question. For those the package cannot rule out a guard that would
+are not: the crash harness injects at a point in a write, and the creation
+harness restarts the built daemon, and neither asks the un-faulted question. For those the package cannot rule out a guard that would
 refuse the un-faulted state too.
 
 The per-case result is given rather than the count it rolls up into:

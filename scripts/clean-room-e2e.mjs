@@ -11,6 +11,9 @@
  * observation, with a control that failed, or not at all
  * (`scripts/lib/clean-room-coverage.mjs`).
  *
+ * Three daemon harnesses run: creation (F002's restart), crash (F001, F003)
+ * and identity (F004); the fault harness covers the rest.
+ *
  * The report distinguishes those on purpose. A run that listed sixteen
  * groups and exercised four would be the artefact this whole program keeps
  * finding: a confident sentence nobody can check.

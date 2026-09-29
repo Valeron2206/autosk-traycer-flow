@@ -71,8 +71,13 @@ test("a case that failed its control is not claimed as a real fault", () => {
   assert.deepEqual({ detected: derived.F006.detected, control: derived.F006.control }, { detected: true, control: false });
 });
 
-/** The daemon harnesses' steps as they print their summaries: all six crash points, and F004 with its control. */
+/** The daemon harnesses' steps as they print their summaries: the creation harness's checks, all six crash points, and F004 with its control. */
 const DAEMON_STEPS = Object.freeze([
+  {
+    step: "harness:creation",
+    ok: true,
+    summary: { passed: 2, checks: ["SIGKILL restart preserves creation identity", "legacy CLI output remains available"] },
+  },
   {
     step: "harness:crash",
     ok: true,
@@ -96,8 +101,9 @@ test("the coverage table is derived from the run, and says how each group was co
   // Debt 12e: only F004 is the designed fault met on the product path, with a
   // silent control (it was F004 and the five measured groups: 6).
   assert.deepEqual(inState("covered_by_real_fault"), ["F004"]);
-  assert.deepEqual(inState("covered_without_control"), ["F001"]);
-  assert.deepEqual(inState("covered_by_substitute_fault"), ["F002", "F003"]);
+  // Debt 13f: F002's designed fault is the creation harness's (no control paired, as F001's).
+  assert.deepEqual(inState("covered_without_control"), ["F001", "F002"]);
+  assert.deepEqual(inState("covered_by_substitute_fault"), ["F003"]);
   assert.deepEqual(inState("covered_by_host_function"), kinds("measured_observation"));
   assert.deepEqual(inState("covered_by_written_observation"), kinds("written_observation"));
   assert.deepEqual(inState("control_failed"), []);
@@ -177,7 +183,7 @@ test("a real_path group is one a daemon harness covers, and no fault-harness cas
   for (const group of matrix.groups) {
     if (group.injection === "real_path") {
       assert.equal(Object.hasOwn(CASES, group.id), false, group.id);
-      assert.ok(["crash", "identity"].includes(COVERAGE[group.id].harness), group.id);
+      assert.ok(["creation", "crash", "identity"].includes(COVERAGE[group.id].harness), group.id);
       // Debt 11f (R7-6): the table names the harness and what its run must
       // show; whether the fault was detected is the run's, never the table's.
       for (const claim of ["real_fault", "detected", "control"]) {

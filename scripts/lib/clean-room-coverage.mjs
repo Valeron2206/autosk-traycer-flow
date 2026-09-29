@@ -21,6 +21,13 @@
  * silent ranks first: `control_failed`), and a measured group is
  * `covered_by_host_function`, reported as what it is.
  *
+ * Debt 13f (R9-11): the crash harness kills the native store writer at the
+ * task record and never restarts the daemon, so it does not perform F002's
+ * designed fault ("kill the daemon, restart, repeat the same creation key");
+ * the creation harness's own run does, and F002 is credited to it. That run is
+ * the designed fault on the product path (`covered_without_control`: it pairs
+ * no control yet) and only when the harness's summary names the check.
+ *
  * The rule and the coverage report built on it live here, shared by the run
  * (`scripts/clean-room-e2e.mjs`), the design validator
  * (`scripts/validate-clean-room-e2e.mjs`), which holds the contract to these
@@ -94,17 +101,27 @@ export function coverageState(group, observation) {
  * fault, so a run whose crash or identity harness failed, or never ran, still
  * counted them). F001–F004 name the daemon harness that makes their fault and
  * what that harness's summary must carry for the group — the crash points
- * killed, or the identity harness's group and control — and `harnessCoverage`
+ * killed, the creation harness's named check, or the identity harness's group
+ * and control — and `harnessCoverage`
  * reads them from the run. F005–F020 name nothing: the fault harness covers
  * them, and `faultCoverage` derives their entries from what its run detected.
  */
 export const COVERAGE = Object.freeze({
   // The crash harness injects at two points of a write and never asks the
-  // un-faulted question, so its groups are covered without a control — the
+  // un-faulted question, so its groups (F001, F003) are covered without a control — the
   // difference between "injected" and "shown to be specific", which the panel
   // read as a completeness claim the run did not support.
   F001: { harness: 'crash', evidence: 'reservation.before / reservation.after', points: Object.freeze(['reservation.before', 'reservation.after']) },
-  F002: { harness: 'crash', evidence: 'task.before / task.after', points: Object.freeze(['task.before', 'task.after']) },
+  // The creation harness performs F002's designed fault: it SIGKILLs the built
+  // daemon, starts it again and repeats the same creation key (`check` is the
+  // name it prints for that step). It asks no control and writes none of the
+  // group's four proofs. The crash harness's `task.before` / `task.after` kill
+  // the store writer, not the daemon, and are credited to no group (debt 13f).
+  F002: {
+    harness: 'creation',
+    evidence: 'the built daemon SIGKILLed and restarted, then the same creation key answers existing_same_binding',
+    check: 'SIGKILL restart preserves creation identity',
+  },
   F003: { harness: 'crash', evidence: 'activation.before / activation.after', points: Object.freeze(['activation.before', 'activation.after']) },
   F004: {
     harness: 'identity',
@@ -146,10 +163,13 @@ export const COVERAGE = Object.freeze({
 export function harnessCoverage(steps = []) {
   const stepOf = (harness) => steps.find((entry) => entry?.step === `harness:${harness}`) ?? null;
   const summaryOf = (step) => (step?.ok === true ? (step.summary ?? null) : null);
+  const creationStep = stepOf('creation');
   const crashStep = stepOf('crash');
   const identityStep = stepOf('identity');
+  const creation = summaryOf(creationStep);
   const crash = summaryOf(crashStep);
   const identity = summaryOf(identityStep);
+  const checks = new Set(Array.isArray(creation?.checks) ? creation.checks : []);
   const points = new Set((crash?.cases ?? []).map((entry) => entry?.point));
   const entries = {};
   for (const [id, declared] of Object.entries(COVERAGE)) {
@@ -161,6 +181,18 @@ export function harnessCoverage(steps = []) {
         evidence: detected ? declared.evidence
           : crash === null ? 'the crash harness step failed'
             : `the crash harness passed without reporting ${unreported.join(' and ')}`,
+        detected,
+        control: null,
+      });
+    } else if (declared.harness === 'creation' && creationStep !== null) {
+      // The step passing is not the fault: its summary must name the check
+      // that kills the built daemon, restarts it and repeats the key.
+      const detected = creation !== null && checks.has(declared.check);
+      entries[id] = Object.freeze({
+        harness: 'creation',
+        evidence: detected ? declared.evidence
+          : creation === null ? 'the creation harness step failed'
+            : `the creation harness passed without reporting "${declared.check}"`,
         detected,
         control: null,
       });

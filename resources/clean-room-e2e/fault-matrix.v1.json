@@ -53,10 +53,8 @@
       "description": "retry after the daemon process exited",
       "fault": "kill the daemon, restart, repeat the same creation key",
       "injection": "real_path",
-      "injection_matches_design": false,
-      "injection_note": "the crash harness kills the native store writer the daemon spawns with SIGKILL at the task-record write, once before and once after it is acknowledged, and repeats the creation through the running daemon; the daemon itself is not killed or restarted, although the description and fault fields say it is",
-      "design_departure": "the run does not kill the daemon or restart it: it kills the native store writer the daemon spawns, at the task-record write, and repeats the creation through the running daemon",
-      "product_path_owner": "#36 converts it: the crash harness kills the built daemon and restarts it before the same creation key is repeated; the run builds the daemon, so no other record has to land first",
+      "injection_matches_design": true,
+      "injection_note": "the creation harness (`scripts/verify-autosk-creation.mjs`) kills the built daemon with SIGKILL, starts it again and repeats the same creation key through a new session, which answers existing_same_binding with the receipt of the task created before the kill; it pairs no control and writes none of the four proofs below (#36 pairs the control and emits them), and the crash harness's kills of the native store writer at the task-record write are a different fault, credited to no group",
       "proofs": [
         {
           "kind": "application_proof",

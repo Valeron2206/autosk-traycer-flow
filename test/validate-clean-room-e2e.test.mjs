@@ -27,6 +27,7 @@ import {
   validateCleanRoomDesign,
   validateMatrix,
 } from "../scripts/validate-clean-room-e2e.mjs";
+import { COVERAGE } from "../scripts/lib/clean-room-coverage.mjs";
 
 const files = loadFiles();
 const schema = JSON.parse(files[SCHEMA_PATH]);
@@ -207,14 +208,15 @@ test("the design digest changes when any shipped file changes", () => {
 });
 
 // Debt 12e (R8-7, R8-12): whether a group's run is the fault the group designs
-// is a field of the group, so the coverage rule can read it. F002 and F003 say
-// in their own notes that the run does neither (no daemon restart; no transcript
-// or meta write), and so does every written observation but F011's, whose
-// script really prints success and exits 0.
+// is a field of the group, so the coverage rule can read it. F003 says in its own
+// note that the run writes no transcript or meta, and so does every written
+// observation but F011's, whose script really prints success and exits 0. (F002
+// said the same of the daemon restart until debt 13f: the creation harness
+// performs it.)
 
-const DEPARTS = Object.freeze(["F002", "F003", "F006", "F007", "F008", "F012", "F015", "F016", "F017", "F018", "F019", "F020"]);
+const DEPARTS = Object.freeze(["F003", "F006", "F007", "F008", "F012", "F015", "F016", "F017", "F018", "F019", "F020"]);
 
-test("every group says whether its run is its designed fault, and the twelve whose notes admit a departure say no", () => {
+test("every group says whether its run is its designed fault, and the eleven whose notes admit a departure say no", () => {
   const byId = Object.fromEntries(matrix().groups.map((entry) => [entry.id, entry.injection_matches_design]));
   for (const [id, matches] of Object.entries(byId)) assert.equal(matches, !DEPARTS.includes(id), id);
   for (const entry of matrix().groups) {
@@ -230,14 +232,14 @@ test("a group that does not say whether its run is its designed fault is refused
 
 test("a run that departs from its design names the departure, and a run that does not names none", () => {
   assertRejects(
-    mutated((value) => { delete group(value, "F002").design_departure; }),
-    /F002.*departs from its designed fault and does not say how/u,
+    mutated((value) => { delete group(value, "F003").design_departure; }),
+    /F003.*departs from its designed fault and does not say how/u,
   );
   assertRejects(
     mutated((value) => { group(value, "F001").design_departure = "the run kills at the reservation only"; }),
     /F001.*design_departure.*matches its design/u,
   );
-  assertRejects(mutated((value) => { group(value, "F002").design_departure = ""; }), /design_departure/u);
+  assertRejects(mutated((value) => { group(value, "F003").design_departure = ""; }), /design_departure/u);
 });
 
 test("a note that admits the run is not the designed fault, beside a flag that says it is, is refused", () => {
@@ -259,9 +261,9 @@ test("a note that admits the run is not the designed fault, beside a flag that s
 });
 
 test("a group that cannot be covered by a real fault on the product path names who converts it", () => {
-  // F002 departs, F009 is a host function, F017 is a written observation: none
+  // F003 departs, F009 is a host function, F017 is a written observation: none
   // is counted, and each says what would count.
-  for (const id of ["F002", "F009", "F017"]) {
+  for (const id of ["F003", "F009", "F017"]) {
     assertRejects(
       mutated((value) => { delete group(value, id).product_path_owner; }),
       new RegExp(`${id}.*product_path_owner`, "u"),
@@ -271,8 +273,9 @@ test("a group that cannot be covered by a real fault on the product path names w
       new RegExp(`${id}.*product_path_owner.*#36`, "u"),
     );
   }
-  // F001 and F004 are the designed fault on the product path: nothing to convert.
-  for (const id of ["F001", "F004"]) {
+  // F001, F002 and F004 are the designed fault on the product path: nothing to convert
+  // (F002 since debt 13f, when the creation harness's run was credited to it).
+  for (const id of ["F001", "F002", "F004"]) {
     assertRejects(
       mutated((value) => { group(value, id).product_path_owner = "#36 converts it"; }),
       new RegExp(`${id}.*product_path_owner.*already the designed fault`, "u"),
@@ -282,7 +285,7 @@ test("a group that cannot be covered by a real fault on the product path names w
 
 test("the owners the matrix names are the records that own each guard's driver or helper", () => {
   const owners = Object.fromEntries(matrix().groups.filter((entry) => entry.product_path_owner).map((entry) => [entry.id, entry.product_path_owner]));
-  assert.deepEqual(Object.keys(owners), matrix().groups.map((entry) => entry.id).filter((id) => !["F001", "F004"].includes(id)));
+  assert.deepEqual(Object.keys(owners), matrix().groups.map((entry) => entry.id).filter((id) => !["F001", "F002", "F004"].includes(id)));
   for (const [id, owner] of Object.entries(owners)) assert.match(owner, /^#36 /u, id);
   // Review of 12e (L4): each group's owner is the record the group's guard belongs
   // to (the module that calls it: `delta-driver` for `refMovementErrors`, through
@@ -290,7 +293,7 @@ test("the owners the matrix names are the records that own each guard's driver o
   // nothing else has to exist first. A pin per group, so a re-attribution is a decision.
   const named = (owner) => [...new Set(owner.slice(4).match(/#\d+/gu) ?? [])].sort();
   const expected = {
-    F002: [], F003: [], F005: [],
+    F003: [], F005: [],
     F006: ["#18", "#9"], F007: ["#18", "#8", "#9"], F008: ["#18", "#8"],
     F009: ["#18", "#8"], F010: ["#18", "#8"], F011: ["#18", "#26"],
     F012: ["#18", "#24"], F013: ["#18", "#24"], F014: ["#18", "#26"],
@@ -300,7 +303,7 @@ test("the owners the matrix names are the records that own each guard's driver o
   F017: ["#13", "#18", "#5"], F018: ["#13", "#18", "#5"], F019: ["#13", "#18", "#5"], F020: ["#13", "#18", "#5"],
   };
   for (const [id, records] of Object.entries(expected)) assert.deepEqual(named(owners[id]), records, id);
-  for (const id of ["F002", "F003", "F005"]) assert.match(owners[id], /the run builds the daemon, so no other record has to land first/u, id);
+  for (const id of ["F003", "F005"]) assert.match(owners[id], /the run builds the daemon, so no other record has to land first/u, id);
   // F005's fault is written by the built daemon's session store (`sessionStore.create` →
   // `write_session_transcript`, `write_session_meta` through `autosk-store-lock`), not by #21's driver.
   assert.match(owners.F005, /built daemon's session write/u);
@@ -329,7 +332,10 @@ test("the contract says who is owed a conversion, that it is a decision, and whe
   // "each group that is not the designed fault on the product path".
   assert.match(contract, /each group that is not the designed fault on the product path names in `product_path_owner`/u);
   assert.doesNotMatch(contract, /each group that does not count names in `product_path_owner`/u);
-  assert.match(contract, /F001 is the designed fault on the product path and counts once #36's crash harness asks a control/u);
+  assert.match(contract, /F001 and F002 are the designed fault on the product path and count once #36's harness pairs a control/u);
+  // Debt 13f (R9-11): F002's run is the creation harness's, and what it lacks for the gate is named.
+  assert.match(contract, /F002's designed fault is run by the creation harness \(`scripts\/verify-autosk-creation\.mjs`\)/u);
+  assert.match(contract, /pairs no control and emits none of the four proofs/u);
   // Nits: a substitute's silent control says nothing, and a failed one is `control_failed` first.
   assert.doesNotMatch(contract, /whatever the control did/u);
   assert.match(contract, /a control that did not stay silent is `control_failed` first/u);
@@ -337,6 +343,45 @@ test("the contract says who is owed a conversion, that it is a decision, and whe
   assert.match(contract, /Such a conversion is a decision and not a side effect: `real_path` stays the built daemon answering on its own path/u);
   // Nits: the flag's standard.
   assert.match(contract, /A run is the designed fault when the operation or window the design names actually happens/u);
+});
+
+// Debt 13f (R9-11): F002's designed fault — kill the daemon, restart, repeat the same
+// creation key — was given to the crash harness, which kills the native store writer and
+// never restarts the daemon, while the creation harness's own run does it. A group the
+// coverage rule credits to a daemon harness names that harness in its own note, so the
+// record and the rule cannot give one fault to two harnesses.
+
+test("a group the coverage rule credits to a daemon harness names that harness in its note (debt 13f)", () => {
+  assert.deepEqual(
+    Object.entries(COVERAGE).filter(([, entry]) => entry.harness).map(([id, entry]) => [id, entry.harness]),
+    [["F001", "crash"], ["F002", "creation"], ["F003", "crash"], ["F004", "identity"]],
+  );
+  for (const [id, entry] of Object.entries(COVERAGE)) {
+    if (!entry.harness) continue;
+    assert.ok(group(matrix(), id).injection_note.includes(`the ${entry.harness} harness`), `${id}: ${group(matrix(), id).injection_note}`);
+  }
+  assert.deepEqual(validateMatrix(matrix(), schema), []);
+});
+
+test("F002's note gives its fault to the creation harness, and a note that gives it to the crash harness is refused (debt 13f)", () => {
+  const f002 = group(matrix(), "F002");
+  assert.match(f002.injection_note, /the creation harness \(`scripts\/verify-autosk-creation\.mjs`\) kills the built daemon with SIGKILL, starts it again and repeats the same creation key/u);
+  assert.match(f002.injection_note, /existing_same_binding/u);
+  assert.equal(f002.injection_matches_design, true);
+  assert.equal(f002.design_departure, undefined);
+  assert.equal(f002.product_path_owner, undefined);
+  // The old attribution: the crash harness kills the store writer and never restarts the daemon.
+  assertRejects(
+    mutated((value) => {
+      group(value, "F002").injection_note = "the crash harness kills the native store writer the daemon spawns with SIGKILL at the task-record write and repeats the creation through the running daemon";
+    }),
+    /F002.*injection_note.*does not name the creation harness/u,
+  );
+  // The other daemon groups are held to their own harness the same way.
+  assertRejects(
+    mutated((value) => { group(value, "F004").injection_note = "the creation harness swaps the installed distribution on disk"; }),
+    /F004.*injection_note.*does not name the identity harness/u,
+  );
 });
 
 // Debt 10h (R6-20, a1): the package said every group is injected for real and
