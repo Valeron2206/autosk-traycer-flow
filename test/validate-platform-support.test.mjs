@@ -1083,3 +1083,194 @@ test("ADR-110 records the decision, and ADR-102's Git text says it changed (R9-1
   const adr102 = sectionOf(decisions, "## ADR-102:", "## ADR-103:");
   assert.match(adr102, /Изменено ADR-110/u);
 });
+
+// --- debt 13c (round 9 of #39, R9-2, R9-8, R9-6): what the one model account isolates, and where it works ---
+
+const PROCESS_ISOLATION_FIELDS = Object.freeze({
+  between_model_processes: "not_isolated_by_the_os",
+  kept_from_the_account: ["installing_user", "project_git_directory"],
+  held_by_v1: ["separate_worktrees_and_sessions", "content_contamination_refused", "whole_tree_termination"],
+  os_isolation_owner_issue: 197,
+  finished_step_roots: "closed_by_autoskd_at_step_end",
+  closed_root_mode: "0700",
+  helps: "later_processes",
+  does_not_help: ["concurrent_processes"],
+});
+
+test("the account's record says one uid does not isolate model processes from each other, and #197 owns the rest (R9-2)", () => {
+  const record = matrix().install.model_account.process_isolation;
+  assert.ok(record, "install.model_account.process_isolation");
+  assert.deepEqual(record.owner_issues, [13, 18]);
+  for (const [field, expected] of Object.entries(PROCESS_ISOLATION_FIELDS)) {
+    assert.deepEqual(record[field], expected, field);
+    assert.deepEqual(schema.properties.install.properties.model_account.properties.process_isolation.properties[field].const, expected, `schema ${field}`);
+  }
+  assert.deepEqual(viewValidator.processIsolationErrors(matrix(), program()), []);
+  // A record that says the daemon isolates them, or that closing helps a concurrent process, is refused.
+  for (const [field, lie] of [
+    ["between_model_processes", "isolated_by_the_daemon"],
+    ["does_not_help", []],
+    ["os_isolation_owner_issue", 18],
+    ["held_by_v1", ["separate_worktrees_and_sessions", "os_isolation"]],
+  ]) {
+    const bad = matrix();
+    bad.install.model_account.process_isolation[field] = lie;
+    assert.match(viewValidator.processIsolationErrors(bad, program()).join("\n"), new RegExp(`process_isolation\\.${field} must be`, "u"), field);
+    assertRejects(bad, new RegExp(`process_isolation\\.${field}`, "u"));
+  }
+  // Its owners are v1 records that name it.
+  const noName = program();
+  const own18 = noName.records.find((entry) => entry.issue_number === 18);
+  own18.implementation_obligation_before_mvp = own18.implementation_obligation_before_mvp.replaceAll("`process_isolation`", "the isolation");
+  assert.match(viewValidator.processIsolationErrors(matrix(), noName).join("\n"), /process_isolation owner #18 does not name `process_isolation`/u);
+  const noRecord = matrix();
+  delete noRecord.install.model_account.process_isolation;
+  assert.match(viewValidator.processIsolationErrors(noRecord, program()).join("\n"), /has no record/u);
+  assertRejects(noRecord, /process_isolation/u);
+});
+
+test("§5b says the account isolates the models from the user and the Git directory and not from each other, measured, and #197's (R9-2)", () => {
+  const fiveB = sectionOf(files[CONTRACT_PATH], "## 5b.", "## 6.");
+  assert.doesNotMatch(fiveB, /That isolation, between the models, stays the daemon's — worktrees, sessions, custody/u);
+  for (const phrase of [
+    /The account isolates the models from the installing user and the project's Git directory, and from nothing else: not from each other/u,
+    /a process of the account can read and rewrite another's worktree, its session directory and its Git view, and can signal, read the environment of and ptrace it/u,
+    /`13c\/measure\/iso\.log`/u,
+    /`PTRACE_ATTACH`/u,
+    /against a process of the installing user the same signal, read and attach were refused/u,
+    /worktrees, sessions and custody are placements and records, and against a process of the same uid a placement is a convention/u,
+    /a separate worktree and a separate session directory for each, which a model that stays in its tools does not leave/u,
+    /contamination that shows in content, refused \(`arena_candidate_contaminated`, `arena\.md` §4\), which catches what was copied and not what was only read/u,
+    /OS isolation between model processes — between an Arena's candidates, between one Ticket's implementer and another's, between the models of different projects — is not provided and not claimed: it is #197's/u,
+    /not taken without a successor matrix \(ADR-111\)/u,
+  ]) {
+    assert.match(fiveB, phrase);
+  }
+});
+
+test("§5b says what closes when a step ends, that it helps a later process and not a concurrent one, and how a root is torn down (R9-2)", () => {
+  const fiveB = sectionOf(files[CONTRACT_PATH], "## 5b.", "## 6.");
+  for (const phrase of [
+    /\*\*what closes when a step ends\*\* \(`process_isolation`, ADR-111\)/u,
+    /closes it to `0700`, its own uid's, when the step ends/u,
+    /could no longer list, read, write into or `chmod` the closed root, since it is not the root's owner/u,
+    /a process whose working directory lay inside one was refused the same; a file descriptor it opened before the close still works/u,
+    /A process that runs at the same time is not helped[^\n]*concurrent Arena candidates stay unisolated/u,
+    /the name stays listed in the parent/u,
+    /The session directory's root has to be the installing user's for this: one the account owns, the account can reopen/u,
+    /The teardown reopens the root \(`chmod 2770`, autoskd\) and removes it under the model account/u,
+  ]) {
+    assert.match(fiveB, phrase);
+  }
+  // #13 proves it, #18 does it.
+  const records = program().records;
+  const obligation = (issue) => records.find((entry) => entry.issue_number === issue).implementation_obligation_before_mvp;
+  assert.match(obligation(13), /is refused every traversal into the closed root of a finished step's worktree and session directory \(`process_isolation`\)/u);
+  assert.match(obligation(18), /closes it to mode 0700 when the step ends[^.]*reopening it for the teardown under the account \(`process_isolation`: a process that runs at the same time is not helped, and OS isolation between model processes is #197's, ADR-111\)/u);
+  assert.match(records.find((entry) => entry.issue_number === 13).verification_expectation, /a closed root of a finished step refusing the account/u);
+  assert.match(sectionOf(files[CONTRACT_PATH], "## 5b.", "## 6."), /#13 and #18 — the owners of `install\.model_account\.process_isolation` — to be ones whose obligation names `process_isolation`/u);
+  // §8 requires the test of it, and forbids the test of what does not hold.
+  const eight = sectionOf(files[CONTRACT_PATH], "## 8.", "## 9.");
+  assert.match(eight, /a finished step's closed root refusing the model account \(`process_isolation`\)/u);
+  assert.match(eight, /no test that claims a concurrent model process is refused a running step's worktree — it is not \(§5b\), and OS isolation between model processes is #197's/u);
+  assert.match(eight, /a process under the model account holding no `AUTOSK_SESSION_TOKEN` and writing no task metadata, the cap counters and baselines among it \(§5b\)/u);
+});
+
+test("Arena's contract, its matrix delivery, 01, 02 and README claim no isolation between model processes (R9-2)", () => {
+  const arena = read("docs/contracts/arena.md");
+  assert.doesNotMatch(arena, /## 4\. Isolation is a property, not an instruction/u);
+  assert.doesNotMatch(arena, /see neither the judge's criteria nor each other's work/u);
+  assert.doesNotMatch(arena, /work the same framing in isolation/u);
+  assert.match(arena, /## 4\. Contamination is refused, not discouraged; separation is not an OS boundary/u);
+  const four = sectionOf(arena, "## 4.", "## 5.");
+  for (const phrase of [
+    /separate worktrees with separate session directories/u,
+    /The refusal is a check on content: it catches output that was copied or handed over, not a file that was only read/u,
+    /What v1 does not provide is an OS boundary between candidates/u,
+    /The account keeps the models from the installing user and the project's Git directory, and from nothing else/u,
+    /OS isolation between candidates is #197's/u,
+    /an Arena's candidates are separated, not isolated/u,
+    /does not help a candidate that runs at the same time \(ADR-111\)/u,
+  ]) {
+    assert.match(four, phrase);
+  }
+  assert.match(arena, /Decided: the framing bound, contamination as a refusal rather than a rule, separation named as not an OS boundary/u);
+  const point = program().enforcement_points.find((entry) => entry.point === "graph.arena-runtime");
+  assert.doesNotMatch(point.delivery, /candidates isolated from each other/u);
+  assert.match(point.delivery, /candidates in separate worktrees and session directories, contamination refused and no OS boundary between them \(#197's, docs\/contracts\/platform-support\.md §5b\)/u);
+  assert.match(read("docs/program-capability-matrix.md"), /candidates in separate worktrees and session directories/u);
+  assert.doesNotMatch(read("docs/program-capability-matrix.md"), /candidates isolated from each other/u);
+  // 01 §1 and its Arena flow, 02 §5, README rule 19.
+  const core = read("01-core-flows.md");
+  assert.doesNotMatch(core, /candidate A: Grok, isolated worktree/u);
+  assert.match(core, /candidate A: Grok, separate worktree/u);
+  assert.match(core, /для процессов моделей она не ОС-граница[^\n]*одной учётной записью `autosk-model`[^\n]*вне v1 и принадлежит #197/u);
+  const architecture = read("02-architecture.md");
+  assert.match(architecture, /между процессами моделей они не граница[^\n]*которая отделяет их от пользователя и Git-каталога проекта, но не друг от друга[^\n]*#197/u);
+  assert.match(architecture, /is denied accessibility\/ptrace\/keychain of the installing user; it does not isolate model processes from one another, which share its one uid/u);
+  assert.match(read("03-technical-plan.md"), /sharing one uid with every other model process, does not isolate them from one another \(#197, ADR-111\)/u);
+  const rule = read("README.md").split("\n").find((line) => line.startsWith("19. ")) ?? "";
+  assert.match(rule, /а друг от друга процессы моделей она не отделяет: у них одна uid/u);
+  assert.match(rule, /вне v1 и принадлежит #197/u);
+});
+
+test("02 §5 and §8, 03 and §5b mark the worktree cache and the provider sessions open, with their owners (R9-8)", () => {
+  const architecture = read("02-architecture.md");
+  const plan = read("03-technical-plan.md");
+  assert.doesNotMatch(architecture, /с explicit owner binding и `AUTOSK_CWD` исходного проекта\.\n/u);
+  for (const [text, phrase] of [
+    [architecture, /`AUTOSK_CWD` исходного проекта — \*\*место открыто, а не правило\*\*[^\n]*#13 с #18 и #11[^\n]*ADR-111/u],
+    [architecture, /provider-sessions\/ +# место открыто[^\n]*#13 с #18 и #11, ADR-111/u],
+    [architecture, /review workspace лежит в `~\/\.autosk\/worktrees\/<project_root_sha256>\/\.\.\.` \(место открыто, §5: #13 с #18 и #11, ADR-111\)/u],
+    [plan, /Это место открыто, а не правило[^\n]*#13 с #18 и #11[^\n]*ADR-111/u],
+    [plan, /\(место открыто: модельная учётная запись этим домом пользоваться не может, решают #13 с #18 и #11/u],
+    [plan, /provider_session_dir \(где этот каталог лежит и кому принадлежит — открыто за #13 с #18 и #11/u],
+  ]) {
+    assert.match(text, phrase);
+  }
+  const fiveB = sectionOf(files[CONTRACT_PATH], "## 5b.", "## 6.");
+  assert.match(fiveB, /02 §5 and §8 and 03 put the external worktree cache and the review workspaces under the installing user's `~\/\.autosk\/worktrees\/<project_root_sha256>\/`[^\n]*neither is the rule until the placement is decided; 02, 03 and the package's not-claimed list say so \(ADR-111\)/u);
+  assert.match(fiveB, /Where each model's worktree and session directory lie[^\n]*is open for #13 with #18 and #11/u);
+  const own13 = program().records.find((entry) => entry.issue_number === 13).implementation_obligation_before_mvp;
+  assert.match(own13, /Open with #18 and #11: where a model's worktree and session directory lie under the project root, and with them the placements 02 §5 and §8 and 03 still write as the rule/u);
+});
+
+test("the cap counters and baselines are model-forgeable today, and the account makes them not so (R9-6)", () => {
+  const factory = read("docs/contracts/workflow-factory.md");
+  assert.doesNotMatch(factory, /a model can write neither \(ADR-102\)/u);
+  assert.doesNotMatch(factory, /while a model reaches no metadata write at all \(ADR-102\)/u);
+  assert.match(factory, /under the model account of ADR-102 a model reaches no metadata write, so it could not open a cycle\. Today it can: every model process runs under autoskd's uid with `AUTOSK_SESSION_TOKEN` \(patch `0028`\)[^\n]*until #13's account, #11's environment and #18's metadata CAS exist \(ADR-111\)/u);
+  assert.match(factory, /So is one a model rewrites, today: every model process runs under autoskd's uid with `AUTOSK_SESSION_TOKEN` \(patch `0028`\), the counter `transition_takings` is human-editable metadata \(patch `0034`\) and a baseline is a plain `autosk metadata set` leaf \(`src\/host\/workflow-factory\.mjs`\), so a model process can write either and reset a cap/u);
+  assert.match(factory, /What ADR-102 makes true once #13's account exists is that a model holds no session token and no metadata write/u);
+  assert.match(factory, /claims nothing against a model that writes metadata/u);
+  const fiveB = sectionOf(files[CONTRACT_PATH], "## 5b.", "## 6.");
+  assert.match(fiveB, /It writes no task metadata either, so the cap counters `step_visits` and `transition_takings` and the cap baselines `cap_baselines\.<cycle>\.<n>` \(`workflow-factory\.md` §11\) are leaves it cannot write\. That is what the account makes true, not what holds today/u);
+  const records = program().records;
+  const obligation = (issue) => records.find((entry) => entry.issue_number === issue).implementation_obligation_before_mvp;
+  assert.match(obligation(11), /no `AUTOSK_SESSION_TOKEN` and no task-metadata write — the `transition_takings` and `step_visits` counters a cap reads and the `cap_baselines\.<cycle>\.<n>` leaves the factory writes are among the leaves it cannot write/u);
+  assert.match(obligation(13), /holds no `AUTOSK_SESSION_TOKEN` and can write no task metadata — the cap counters and baselines among it —/u);
+  assert.match(obligation(18), /and the cap baselines `cap_baselines\.<cycle>\.<n>`, which it reads to count a cap's cycle, are written only under the step-capability metadata CAS/u);
+  assert.match(sectionOf(files[CONTRACT_PATH], "## 5b.", "## 6."), /#11 owns the model process environment — started under the account, with no daemon capability, no session token and no task-metadata write/u);
+});
+
+test("ADR-111 records the decision, and the ADRs whose text changed meaning say so (R9-2, R9-8, R9-6)", () => {
+  const decisions = read("04-decisions.md");
+  assert.ok(decisions.includes("## ADR-111:"), "ADR-111");
+  const adr = decisions.slice(decisions.indexOf("## ADR-111:"));
+  for (const phrase of [
+    /R9-2/u, /R9-8/u, /R9-6/u, /#197/u, /Альтернатива/u, /`process_isolation`/u, /`arena_candidate_contaminated`/u, /PTRACE_ATTACH/u,
+    /Одна uid не изолирует процессы моделей друг от друга: их не держит ни демон, ни worktree, ни сессия, ни custody/u,
+    /Что не сделано и названо/u, /Ожидания, изменённые решением/u,
+  ]) {
+    assert.match(adr, phrase);
+  }
+  for (const [from, to] of [["## ADR-102:", "## ADR-103:"], ["## ADR-104:", "## ADR-105:"], ["## ADR-077:", "## ADR-078:"]]) {
+    assert.match(sectionOf(decisions, from, to), /Изменено ADR-111/u, from);
+  }
+  // Alternative E's own text no longer says the daemon keeps the models apart.
+  const adr102 = sectionOf(decisions, "## ADR-102:", "## ADR-103:");
+  assert.match(adr102, /Альтернатива E: sandbox ОС на каждый процесс модели\. Отвергнута для v1[^\n]*\(Изменено ADR-111: [^\n]*друг от друга их не держит ни демон, ни worktree, ни сессия, ни custody/u);
+  const adr104 = sectionOf(decisions, "## ADR-104:", "## ADR-105:");
+  assert.doesNotMatch(adr104, /не подделает ни счётчик, ни baseline\./u);
+  assert.doesNotMatch(adr104, /и модель не может ни того, ни другого \(ADR-102\);/u);
+});

@@ -329,6 +329,7 @@
             "keychain_access",
             "daemon_capability",
             "git_view",
+            "process_isolation",
             "privileged_install",
             "checked_by"
           ],
@@ -470,6 +471,66 @@
                 },
                 "teardown": {
                   "const": "under_model_account_then_worktree_prune"
+                }
+              }
+            },
+            "process_isolation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "owner_issues",
+                "between_model_processes",
+                "kept_from_the_account",
+                "held_by_v1",
+                "os_isolation_owner_issue",
+                "finished_step_roots",
+                "closed_root_mode",
+                "helps",
+                "does_not_help"
+              ],
+              "properties": {
+                "owner_issues": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "integer",
+                    "minimum": 3,
+                    "maximum": 39
+                  }
+                },
+                "between_model_processes": {
+                  "const": "not_isolated_by_the_os"
+                },
+                "kept_from_the_account": {
+                  "const": [
+                    "installing_user",
+                    "project_git_directory"
+                  ]
+                },
+                "held_by_v1": {
+                  "const": [
+                    "separate_worktrees_and_sessions",
+                    "content_contamination_refused",
+                    "whole_tree_termination"
+                  ]
+                },
+                "os_isolation_owner_issue": {
+                  "const": 197
+                },
+                "finished_step_roots": {
+                  "const": "closed_by_autoskd_at_step_end"
+                },
+                "closed_root_mode": {
+                  "const": "0700"
+                },
+                "helps": {
+                  "const": "later_processes"
+                },
+                "does_not_help": {
+                  "const": [
+                    "concurrent_processes"
+                  ]
                 }
               }
             },

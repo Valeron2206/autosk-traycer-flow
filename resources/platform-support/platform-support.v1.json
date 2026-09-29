@@ -262,6 +262,29 @@
         ],
         "teardown": "under_model_account_then_worktree_prune"
       },
+      "process_isolation": {
+        "owner_issues": [
+          13,
+          18
+        ],
+        "between_model_processes": "not_isolated_by_the_os",
+        "kept_from_the_account": [
+          "installing_user",
+          "project_git_directory"
+        ],
+        "held_by_v1": [
+          "separate_worktrees_and_sessions",
+          "content_contamination_refused",
+          "whole_tree_termination"
+        ],
+        "os_isolation_owner_issue": 197,
+        "finished_step_roots": "closed_by_autoskd_at_step_end",
+        "closed_root_mode": "0700",
+        "helps": "later_processes",
+        "does_not_help": [
+          "concurrent_processes"
+        ]
+      },
       "privileged_install": {
         "requires_administrator": true,
         "effects": [

@@ -90,7 +90,7 @@ Preflight отказывает любому model workflow без каждой �
 
 | Point | Read from | ADR | Carried by | Surfaces | Delivery |
 | --- | --- | --- | --- | --- | --- |
-| `graph.arena-runtime` | graph_workflows | ADR-077 | #18 | Arena runtime (#18) | the host-mediated candidate and judge steps of the Arena workflows the graph registers, as docs/contracts/arena.md decides them: candidates isolated from each other, a judge of a third family that ranks and does not approve, the person's decision re-expressed in the Tech Plan |
+| `graph.arena-runtime` | graph_workflows | ADR-077 | #18 | Arena runtime (#18) | the host-mediated candidate and judge steps of the Arena workflows the graph registers, as docs/contracts/arena.md decides them: candidates in separate worktrees and session directories, contamination refused and no OS boundary between them (#197's, docs/contracts/platform-support.md §5b), a judge of a third family that ranks and does not approve, the person's decision re-expressed in the Tech Plan |
 | `graph.guard-authority` | graph_guard_authority | ADR-091 | #18 | guard authority evaluator (#18) | extension product code that admits human authority only as a UserDecisionRecord #4's verifier accepts, and policy authority only within the rules and scope the guard records (ADR-023, ADR-091) |
 | `graph.predicate-evaluation` | graph_predicates | ADR-082 | #18 | table from each predicate id to its implementation (#18) | extension product code that binds each predicate id to the implementation in the module of the record that owns its domain (`predicate_domains`, ADR-107) and hands the table to buildWorkflow (src/host/workflow-factory.mjs), which applies it at both decision sites |
 | `graph.workflow-registration` | graph_workflows | ADR-090 | #18 | extension entry point (#18) | extension product code that builds each workflow the graph registers with buildWorkflow and registers it with the daemon, after the capability refusal at extension load |
@@ -220,5 +220,5 @@ npm run validate:capabilities
 
 Inventory digest: `9a5b76cb38138afe2aea39c04a15b5b967823c9163b408b9fe2f10fe566927a2`
 
-Matrix digest: `7f12e3df28bb125944cebb5e3f95b892bfcc62f9bcb1c4d2ba70447919fa4402`
+Matrix digest: `9a8748faf3955f2e7b1206c2cca397e78e2ca1647b857be3be49a1ffc366ec94`
 

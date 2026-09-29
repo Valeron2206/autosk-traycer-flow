@@ -1356,6 +1356,22 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   which predates ADR-102: the example's digest is computed over the example alone
   and carried by the committed signed goldens, which #5 signs again when the example changes.
   Matrix v1 gives #13 the account, its launch mechanism and both probes, #11 the model process environment, #18 the launch path, and #5 with #13 the helper's bootstrap (ADR-102).
+- The one model account is not isolation between model processes, and the package claims none. Every model process of every project, an
+  Arena's candidates and the Ticket implementers among them, runs under the one account \`autosk-model\`, whose worktree group writes every
+  model worktree (\`2770\`, files \`0660\`) and whose uid owns every session directory, so a process of it can read and rewrite another's
+  worktree, session directory and Git view, and signal or ptrace it: measured with throwaway numeric ids (§5b of the platform contract),
+  a process under the account read and appended to a second worktree and a second session, sent another process of the account SIGTERM,
+  read its environment and attached to it with \`PTRACE_ATTACH\`. The account keeps the models from the installing user and the
+  project's Git directory; between model processes v1 has separate worktrees and session directories for a model that stays in its
+  tools, a refusal of contamination that shows in content (\`arena_candidate_contaminated\`) and whole-tree termination, and the daemon's
+  worktrees, sessions and custody are placements and records, no mechanism against a process of the same uid. OS isolation
+  between model processes — an Arena's candidates, projects — is #197's, outside matrix v1 (ADR-111); the closing of a finished step's worktree
+  and session roots (\`process_isolation\`) is design owned by #18 with #13's probe and does not help a process that runs at the same time.
+- The placement of the model's worktrees and sessions is open. 02 §5 and §8 and 03 wrote the external worktree cache under the installing
+  user's \`~/.autosk/worktrees/<project_root_sha256>/\`, review workspaces there too, and provider sessions under
+  \`<canonical-project-root>/.autosk/autosk-flow/provider-sessions/\` as the only placements; the model account can use neither (platform-support.md §5b),
+  so they are not the rule: they are open, owned by #13 with #18 and #11 (ADR-111), and no code in this repository creates a model worktree
+  or a session directory.
 - The model account's Git view is design with owners, and its handout the one part that is code. \`handOutGitView\` (\`src/host/git-view.mjs\`) writes a pack of a commit and its line down to a base, refuses a commit outside the staging line, and \`verifyAggregate\` hands it to the checks;
   the launch that builds the account's own repository at the checkout's root from it, writes \`safe.directory\` into the account's own configuration and removes the worktree under the account is #18's, the probe that proves it from inside the account is #13's,
   and the production runner that starts the aggregate's checks with the handout is #9's with #18 (ADR-110). Until they exist a check that calls \`git\` finds no repository under the account:
@@ -1394,14 +1410,17 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   the credential \`task.create_bound\` takes, into the environment of the
   \`claude-agent\` and \`pi-agent\` model processes, and
   \`src/host/workflow-factory.mjs\` writes the leaves it reads to admit a resume
-  (\`park.reason\`, \`park.origin\`, \`park.receipts.<step>\`) through plain
+  (\`park.reason\`, \`park.origin\`, \`park.receipts.<step>\`) and the cap baselines it reads
+  to count a cycle (\`cap_baselines.<cycle>.<n>\`) through plain
   \`autosk metadata set\`, which any holder of the CLI can run, and reads one more it does not write, \`park.decision\`,
-  which the same command writes: a model session could mint a bound create or
-  forge a receipt that opens a resume; a forged \`park.decision\` opens nothing without a verified record
+  which the same command writes; the \`transition_takings\` counter is human-editable metadata
+  (patch \`0034\`): a model session could mint a bound create, forge a receipt that opens a resume,
+  or write a baseline or rewrite the counter and reset a cap; a forged \`park.decision\` opens nothing without a verified record
   (below). 02 §2 gives
   a model session no CLI or decision capability; that is the design, not this
-  series. Matrix v1 gives the token's removal to #11 and resume leaves written
-  only under the metadata CAS to #18 (ADR-097); roadmap #231 tracks the change.
+  series. Matrix v1 gives the token's removal and a model environment with no
+  metadata write to #11, the account's probe of both to #13, and resume leaves and cap baselines written
+  only under the metadata CAS to #18 (ADR-097, ADR-111); roadmap #231 tracks the change.
 - No user decision is accepted on any host today. The decision queue takes an answer
   only as a daemon \`UserDecisionRecord\` — a response that names its own
   approver, or carries no record, is refused — and checks its fields, its
@@ -1491,7 +1510,10 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   NOT_PASS share one limit per review cycle, which the publication of the
   artifact's PASS closes, never counting fewer rounds than since the last
   verified publication, and the repair after the checks has a cap of its own
-  (ADR-104). The evaluator is the term the factory applies over the
+  (ADR-104). The count is the daemon's own takings, and the cap claims
+  nothing against a model that writes metadata: today a model process can
+  rewrite the \`transition_takings\` counter or write a \`cap_baselines\`
+  leaf and reset the cap (the bullet on model-forgeable leaves, below). The evaluator is the term the factory applies over the
   caller's evaluator at both decision sites, bound per guard at build;
   \`scripts/verify-autosk-cap.mjs\` drives it against a real daemon, where an
   unenforced cap lets the count pass the limit and an enforced one parks with

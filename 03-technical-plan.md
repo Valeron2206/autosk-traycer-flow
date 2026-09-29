@@ -1158,7 +1158,7 @@ Quick classification identity включает normalized request, project, orig
 
 Classifier precedence закрыт: Brief goal/scope/success и Core Flow user-visible behavior/rights/errors всегда `human_required`; Tech Plan public API/data/security/privacy/one-way-door/migration/delivery fields всегда `human_required`; Tickets set/scope/outcome/dependency/exclusion changes всегда `human_required`. Только Tech Plan internal choice с machine-checkable rollback/reversibility proof и без перечисленных affected fields либо Tickets scheduling при byte-identical set/scope/outcome/dependencies/exclusions может получить `local_reversible_implementation`. Любое отсутствующее proof, неизвестное поле или конфликт правил даёт `unknown -> human`, даже если модель сообщила allowed label.
 
-`await_alignment` — human status step. Signer/secure store runs in mandatory separate OS security boundary or hardware enclave. Model sandbox — the model account `autosk-model` that the privileged install creates and every model process runs under (`docs/contracts/platform-support.md` §5b, owned by #13 with #11 and #18) — lacks the project's Git directory, signer RPC, keychain, accessibility and ptrace entitlement, and works in a Git view of its own, a repository the launch builds at its checkout's root from a handout of the handed commit and its line, which autoskd never reads (`git_view`, ADR-110); boundary preflight actively probes and blocks unsupported deployment, and `security.model_account` blocks every model workflow until #13's probe of the account exists (ADR-102). Client only signs exact challenge; daemon journals/head-commits before actor=user. Headless/no boundary remains human.
+`await_alignment` — human status step. Signer/secure store runs in mandatory separate OS security boundary or hardware enclave. Model sandbox — the model account `autosk-model` that the privileged install creates and every model process runs under (`docs/contracts/platform-support.md` §5b, owned by #13 with #11 and #18) — lacks the project's Git directory, signer RPC, keychain, accessibility and ptrace entitlement, and, sharing one uid with every other model process, does not isolate them from one another (#197, ADR-111); it works in a Git view of its own, a repository the launch builds at its checkout's root from a handout of the handed commit and its line, which autoskd never reads (`git_view`, ADR-110); boundary preflight actively probes and blocks unsupported deployment, and `security.model_account` blocks every model workflow until #13's probe of the account exists (ADR-102). Client only signs exact challenge; daemon journals/head-commits before actor=user. Headless/no boundary remains human.
 
 `record_alignment` — deterministic step. До записи он:
 
@@ -1214,7 +1214,7 @@ Author/implementer запускается через WorkAgent: custom worktree 
 
 ### Session continuity
 
-Первый dispatch места создаёт provider_session_id и project-owned provider_session_dir. После фактического запуска exact provider_session_file становится главным resume binding. Следующая child task того же места получает ID/dir/file до enroll и открывает file независимо от нового worktree cwd. Если file отсутствует/повреждён, replacement создаёт новую generation и `replaces`; молчаливое создание второго jsonl с тем же ID запрещено. Сравнения между проектами всегда включают project_root_sha256.
+Первый dispatch места создаёт provider_session_id и provider_session_dir (где этот каталог лежит и кому принадлежит — открыто за #13 с #18 и #11: 02 §6, `docs/contracts/platform-support.md` §5b, ADR-111). После фактического запуска exact provider_session_file становится главным resume binding. Следующая child task того же места получает ID/dir/file до enroll и открывает file независимо от нового worktree cwd. Если file отсутствует/повреждён, replacement создаёт новую generation и `replaces`; молчаливое создание второго jsonl с тем же ID запрещено. Сравнения между проектами всегда включают project_root_sha256.
 
 Источники session record:
 
@@ -1241,7 +1241,7 @@ Task ID может быть новым для каждого раунда рад
 
 Каждый deterministic AgentDefinition и deterministic host tail внутри GateAgent начинают с `assertProjectBoundary` и повторяют его непосредственно перед каждым fs/Git/CLI/RPC side effect. Это явно включает запись/read-back gate result после model run. `onTransit` выполняет только вторую defense-in-depth проверку; поздний отказ не считается защитой уже выполненной записи.
 
-Guard проверяет project binding всех task/session/blocker/verdict/evidence refs, устанавливает `AUTOSK_CWD=ctx.projectRoot` для каждого autosk CLI процесса и использует `safeProjectFs`. Разрешённый root по умолчанию — canonical project root; единственное исключение — Git worktree operation под exact `~/.autosk/worktrees/<project_root_sha256>/`, тоже связанная metadata owner текущего проекта.
+Guard проверяет project binding всех task/session/blocker/verdict/evidence refs, устанавливает `AUTOSK_CWD=ctx.projectRoot` для каждого autosk CLI процесса и использует `safeProjectFs`. Разрешённый root по умолчанию — canonical project root; единственное исключение — Git worktree operation под exact `~/.autosk/worktrees/<project_root_sha256>/`, тоже связанная metadata owner текущего проекта. Это место открыто, а не правило: учётная запись `autosk-model` не может пользоваться домом пользователя, и где worktree и review workspaces лежат под корнем проекта, решают #13 с #18 и #11 (`docs/contracts/platform-support.md` §5b, ADR-111).
 
 - canonical root получается через realpath один раз на run;
 - каждый существующий path component проверяется через lstat и не может быть symlink/junction;
@@ -1363,7 +1363,7 @@ Cap графа следует тому же: `artifact_review_round` огран�
 
 ### Read-only review
 
-Перед запуском создаётся отдельная autosk-code-review child task. pinnedWorktreeSandbox строит path/branch от snapshot commit с ключом `project_root_sha256 + reviewer task ID + role + attempt`. Из-за ограничений Git worktree он живёт во внешнем, но project-namespaced cache `~/.autosk/worktrees/<project_root_sha256>/...`; metadata owner остаётся current canonical root. Каждый autosk CLI subprocess получает `AUTOSK_CWD=ctx.projectRoot`, поэтому cwd worktree никогда не выбирает другой store.
+Перед запуском создаётся отдельная autosk-code-review child task. pinnedWorktreeSandbox строит path/branch от snapshot commit с ключом `project_root_sha256 + reviewer task ID + role + attempt`. Из-за ограничений Git worktree он живёт во внешнем, но project-namespaced cache `~/.autosk/worktrees/<project_root_sha256>/...` (место открыто: модельная учётная запись этим домом пользоваться не может, решают #13 с #18 и #11, `docs/contracts/platform-support.md` §5b, ADR-111); metadata owner остаётся current canonical root. Каждый autosk CLI subprocess получает `AUTOSK_CWD=ctx.projectRoot`, поэтому cwd worktree никогда не выбирает другой store.
 
 Panel, contest, narrow Lead, code-review и Judge получают snapshot-rooted read/grep/list + submit_gate_result. Host writes daemon custody receipt; model task/comment/CLI/transit отсутствуют.
 

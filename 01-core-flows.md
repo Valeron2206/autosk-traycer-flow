@@ -52,6 +52,8 @@ Quick classification проверяется не только на intake, а п
 - daemon policy projection и authority records принадлежат только своему project root;
 - остановка, correction или cleanup проекта A не меняют задачи и файлы проекта B.
 
+Это граница состояния и путей, которую держат guards host'а (02 §5): для процессов моделей она не ОС-граница. Процессы моделей всех проектов работают под одной учётной записью `autosk-model` (`docs/contracts/platform-support.md` §5b), и процесс модели проекта A, вышедший из своих инструментов, может прочитать worktree и каталог сессии проекта B и послать сигнал его процессу (замер, ADR-111). Изоляция между процессами моделей — между проектами, между кандидатами Arena, между Ticket'ами — вне v1 и принадлежит #197; v1 держит отдельные worktree и каталог сессии, отказ по содержимому (`arena_candidate_contaminated`) и завершение всего дерева.
+
 Если один пользовательский запрос затрагивает несколько репозиториев, координатор создаёт отдельный project-scoped Epic для каждого. Каждый Epic хранит общий opaque UUID correlation ID только для display/audit. Он не содержит и не разрешает task/session/evidence/path другого проекта; runtime не использует его для lookup, blockers, joins или recovery. Общего Ticket, общей session или общего mutable документа между проектами нет.
 
 ## 2. Адаптивное планирование
@@ -212,8 +214,8 @@ Arena включается, когда Tech Plan помечает решение
 
 ~~~text
 approved arena framing
-  -> candidate A: Grok, isolated worktree
-  -> candidate B: Codex, isolated worktree
+  -> candidate A: Grok, separate worktree
+  -> candidate B: Codex, separate worktree
   -> optional candidate C only with written reason
   -> Judge from a family outside candidate set
   -> base recommendation + graft list

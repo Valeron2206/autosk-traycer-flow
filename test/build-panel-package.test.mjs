@@ -2471,6 +2471,55 @@ test("§5 says the model account's Git view is design with owners and a handout,
   assert.match(read("test/runtime-artifact-classifier.test.mjs").split("\n")[316] ?? "", /ls-files/u);
 });
 
+// Debt 13c (round 9 of #39, R9-2, R9-8, R9-6): the package says what the one
+// model account does not isolate, that the placements are open, and that a
+// model can rewrite the cap counters today.
+test("§5 says the one model account isolates no model process from another, and that #197 owns it (R9-2)", async () => {
+  const evidence = section5((await build()).text);
+  for (const phrase of [
+    /The one model account is not isolation between model processes, and the package claims none/u,
+    /runs under the one account `autosk-model`, whose worktree group writes every\s+model worktree \(`2770`, files `0660`\) and whose uid owns every session directory/u,
+    /a process of it can read and rewrite another's\s+worktree, session directory and Git view, and signal or ptrace it/u,
+    /attached to it with `PTRACE_ATTACH`/u,
+    /The account keeps the models from the installing user and the\s+project's Git directory; between model processes v1 has separate worktrees and session directories for a model that stays in its\s+tools, a refusal of contamination that shows in content \(`arena_candidate_contaminated`\) and whole-tree termination/u,
+    /no mechanism against a process of the same uid/u,
+    /OS isolation\s+between model processes[^\n]*is #197's, outside matrix v1 \(ADR-111\)/u,
+    /`process_isolation`\) is design owned by #18 with #13's probe and does not help a process that runs at the same time/u,
+  ]) {
+    assert.match(evidence, phrase);
+  }
+});
+
+test("§5 says the placement of the worktree cache and the provider sessions is open, with its owners (R9-8)", async () => {
+  const evidence = section5((await build()).text);
+  for (const phrase of [
+    /The placement of the model's worktrees and sessions is open/u,
+    /02 §5 and §8 and 03 wrote the external worktree cache under the installing\s+user's `~\/\.autosk\/worktrees\/<project_root_sha256>\/`/u,
+    /`<canonical-project-root>\/\.autosk\/autosk-flow\/provider-sessions\/` as the only placements; the model account can use neither/u,
+    /they are open, owned by #13 with #18 and #11 \(ADR-111\), and no code in this repository creates a model worktree\s+or a session directory/u,
+  ]) {
+    assert.match(evidence, phrase);
+  }
+  // The claim is the tree's: no module creates a model worktree under the account.
+  assert.match(read("02-architecture.md"), /место открыто, а не правило/u);
+});
+
+test("§5 lists the cap counters and baselines among what a model can write today, and says the cap claims nothing against it (R9-6)", async () => {
+  const evidence = section5((await build()).text);
+  for (const phrase of [
+    /and the cap baselines it reads\s+to count a cycle \(`cap_baselines\.<cycle>\.<n>`\) through plain\s+`autosk metadata set`/u,
+    /the `transition_takings` counter is human-editable metadata\s+\(patch `0034`\)/u,
+    /or write a baseline or rewrite the counter and reset a cap/u,
+    /metadata write to #11, the account's probe of both to #13, and resume leaves and cap baselines written\s+only under the metadata CAS to #18 \(ADR-097, ADR-111\)/u,
+    /The count is the daemon's own takings, and the cap claims\s+nothing against a model that writes metadata: today a model process can\s+rewrite the `transition_takings` counter or write a `cap_baselines`\s+leaf and reset the cap/u,
+  ]) {
+    assert.match(evidence, phrase);
+  }
+  // The claim is the tree's: the factory writes the baseline through the CLI, and the counter is the daemon's editable metadata.
+  assert.match(read("src/host/workflow-factory.mjs"), /BASELINES_KEY = "cap_baselines"/u);
+  assert.match(read("compat/autosk/patches/0034-transition-takings-counter.patch"), /transition_takings/u);
+});
+
 // Debt 12b (round 8 of #39, R8-2, R8-3, R8-15, R8-16): what an acceptance's
 // heads contain and which chain its record joins are the daemon's rules, and
 // no code here computes them, so the package does not claim them; and that no

@@ -162,6 +162,31 @@ export const GIT_VIEW_CONSTANTS = Object.freeze([
   ["teardown", "under_model_account_then_worktree_prune"],
 ]);
 
+/**
+ * What the one model account isolates (ADR-111). Round 9 of #39 (R9-2) found
+ * isolation between model processes claimed, with no mechanism: every model
+ * process runs under one uid and one worktree group, so a process can read and
+ * rewrite another's worktree and session and signal or ptrace it (measured).
+ * The record says so as constants — the account keeps the models from the
+ * installing user and the project's Git directory and from nothing else,
+ * v1 holds separate worktrees and sessions, contamination refused in content
+ * and whole-tree termination, OS isolation between model processes is #197's,
+ * and autoskd's closing of a finished step's roots helps later processes and
+ * not concurrent ones — and #13 (the probe) and #18 (the launch path) each name
+ * it in their obligations.
+ */
+export const PROCESS_ISOLATION_OWNERS = Object.freeze([13, 18]);
+export const PROCESS_ISOLATION_CONSTANTS = Object.freeze([
+  ["between_model_processes", "not_isolated_by_the_os"],
+  ["kept_from_the_account", ["installing_user", "project_git_directory"]],
+  ["held_by_v1", ["separate_worktrees_and_sessions", "content_contamination_refused", "whole_tree_termination"]],
+  ["os_isolation_owner_issue", 197],
+  ["finished_step_roots", "closed_by_autoskd_at_step_end"],
+  ["closed_root_mode", "0700"],
+  ["helps", "later_processes"],
+  ["does_not_help", ["concurrent_processes"]],
+]);
+
 export function loadFiles() {
   const files = {};
   for (const relative of [CONTRACT_PATH, SCHEMA_PATH, MATRIX_PATH, PROGRAM_MATRIX_PATH, POLICY_SCHEMA_PATH, POLICY_EXAMPLE_PATH]) {
@@ -372,6 +397,44 @@ export function gitViewErrors(matrix, program) {
 }
 
 /**
+ * The process-isolation record, held to `PROCESS_ISOLATION_CONSTANTS` and to
+ * the program matrix: its owners are exactly `PROCESS_ISOLATION_OWNERS`, each a
+ * `required_for_v1` record whose implementation obligation names
+ * `process_isolation` in backticks.
+ */
+export function processIsolationErrors(matrix, program) {
+  const record = matrix?.install?.model_account?.process_isolation;
+  if (!record || typeof record !== "object") {
+    return ["install.model_account.process_isolation: the model account's isolation between model processes has no record"];
+  }
+  const records = Array.isArray(program?.records) ? program.records : [];
+  if (records.length === 0) return [`${PROGRAM_MATRIX_PATH}: no records to hold the process isolation to`];
+  const errors = [];
+  if (!isDeepStrictEqual(record.owner_issues, PROCESS_ISOLATION_OWNERS)) {
+    errors.push(`process_isolation.owner_issues must be ${JSON.stringify(PROCESS_ISOLATION_OWNERS)}: #18 closes a finished step's roots, #13 proves it`);
+  }
+  for (const [field, expected] of PROCESS_ISOLATION_CONSTANTS) {
+    if (!isDeepStrictEqual(record[field], expected)) {
+      errors.push(`process_isolation.${field} must be ${JSON.stringify(expected)}: one uid does not isolate model processes from each other`);
+    }
+  }
+  for (const issue of Array.isArray(record.owner_issues) ? record.owner_issues : []) {
+    const owner = records.find((entry) => entry?.issue_number === issue);
+    if (!owner) {
+      errors.push(`process_isolation owner #${issue} is not a record of the program matrix`);
+      continue;
+    }
+    if (owner.lifecycle !== "required_for_v1") {
+      errors.push(`process_isolation owner #${issue} is ${owner.lifecycle}, not required_for_v1`);
+    }
+    if (!String(owner.implementation_obligation_before_mvp ?? "").includes("`process_isolation`")) {
+      errors.push(`process_isolation owner #${issue} does not name \`process_isolation\` in its implementation obligation`);
+    }
+  }
+  return errors;
+}
+
+/**
  * The ADR-102 form of a ref-custody policy: the helper runs as the installing
  * user, whose ordinary repository the Git directory is (`helper_runs_as`, each
  * profile's `helper_account` and `owner_account`, the packed-refs policy's
@@ -546,6 +609,18 @@ export function validatePlatformSupportDesign(files) {
       errors.push(`${SCHEMA_PATH}: install.model_account.git_view.${field} must be fixed to ${JSON.stringify(expected)}`);
     }
   }
+  const isolationNode = modelNode?.properties?.process_isolation;
+  if (isolationNode?.additionalProperties !== false) {
+    errors.push(`${SCHEMA_PATH}: install.model_account.process_isolation must be closed (additionalProperties:false)`);
+  }
+  if (!Array.isArray(modelNode?.required) || !modelNode.required.includes("process_isolation")) {
+    errors.push(`${SCHEMA_PATH}: install.model_account must require process_isolation`);
+  }
+  for (const [field, expected] of PROCESS_ISOLATION_CONSTANTS) {
+    if (!isDeepStrictEqual(isolationNode?.properties?.[field]?.const, expected)) {
+      errors.push(`${SCHEMA_PATH}: install.model_account.process_isolation.${field} must be fixed to ${JSON.stringify(expected)}`);
+    }
+  }
   if (modelNode?.properties?.privileged_install?.properties?.requires_administrator?.const !== true) {
     errors.push(`${SCHEMA_PATH}: install.model_account.privileged_install.requires_administrator must be fixed to true`);
   }
@@ -578,6 +653,7 @@ export function validatePlatformSupportDesign(files) {
   errors.push(...custodyServiceErrors(matrix, program).map((message) => `${MATRIX_PATH}: ${message}`));
   errors.push(...modelAccountErrors(matrix, program).map((message) => `${MATRIX_PATH}: ${message}`));
   errors.push(...gitViewErrors(matrix, program).map((message) => `${MATRIX_PATH}: ${message}`));
+  errors.push(...processIsolationErrors(matrix, program).map((message) => `${MATRIX_PATH}: ${message}`));
   errors.push(...installCheckErrors(matrix).map((message) => `${MATRIX_PATH}: ${message}`));
   return errors;
 }

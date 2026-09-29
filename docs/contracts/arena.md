@@ -6,7 +6,7 @@ Status: issue #18 runtime contract. Matrix v1 gives Arena's runtime — the two 
 
 ## 1. Authority
 
-Arena is the empirical branch of one decision: when an artifact could be built whose existence answers the question, it is built rather than argued about. Two implementers work the same framing in isolation, a judge from a third family ranks what they produced, and a person decides what to keep.
+Arena is the empirical branch of one decision: when an artifact could be built whose existence answers the question, it is built rather than argued about. Two implementers work the same framing apart, each in a worktree and a session directory of its own, a judge from a third family ranks what they produced, and a person decides what to keep.
 
 Everything here exists because that arrangement has three ways to become theatre — candidates that saw each other, a judge that approves rather than ranks, and a "winner" that never re-enters the plan — and each is refused rather than discouraged.
 
@@ -20,9 +20,11 @@ The closed JSON Schema is `resources/arena/arena-block.schema.json`.
 
 An Arena opens on an approved framing: a reason and **three to six measurable criteria**. Fewer than three is not a comparison; more than six is a survey, and a judge ranking on a dozen axes is choosing which ones to weigh — a decision nobody delegated. Criteria added after a candidate started are refused (`arena_framing_changed`): a criterion written once the work exists is a criterion written to fit it.
 
-## 4. Isolation is a property, not an instruction
+## 4. Contamination is refused, not discouraged; separation is not an OS boundary
 
-Candidates run in separate worktrees, from two distinct families, and see neither the judge's criteria nor each other's work. A candidate whose transcript, workspace or prompt contains another candidate's output is refused (`arena_candidate_contaminated`) — not downgraded, because two candidates that saw each other are one candidate with extra steps.
+Candidates run in separate worktrees with separate session directories, from two distinct families, and are handed neither the judge's criteria nor each other's work: the launch gives a candidate its own framing and nothing of another candidate's. (The graph's and 03 §7's "isolated worktree" means that separate worktree.) A candidate whose transcript, workspace or prompt contains another candidate's output is refused (`arena_candidate_contaminated`) — not downgraded, because two candidates that saw each other are one candidate with extra steps. The refusal is a check on content: it catches output that was copied or handed over, not a file that was only read.
+
+What v1 does not provide is an OS boundary between candidates. Every model process runs under the one account (`docs/contracts/platform-support.md` §5b, ADR-102), so a candidate that leaves its tools can read and rewrite another candidate's worktree and session directory, and signal or ptrace its process (measured, ADR-111). The account keeps the models from the installing user and the project's Git directory, and from nothing else; OS isolation between candidates is #197's — a per-process sandbox or a pool of accounts, outside matrix v1 — and until it exists an Arena's candidates are separated, not isolated. When a candidate's step ends, autoskd closes its worktree and session roots, so a later process, the judge's among them, cannot traverse into them; that does not help a candidate that runs at the same time (ADR-111).
 
 Fewer than two live candidates from distinct families ends the Arena with no winner. The coordinator parks in `human` with `arena_fallback_required`, and the fallback is chosen by an exact daemon `UserDecisionRecord`; an autonomous policy does not close it.
 
@@ -54,6 +56,6 @@ Closed set: `arena_framing_changed`, `arena_candidate_contaminated`, `arena_fall
 
 ## 10. What this contract decides, and what it defers
 
-Decided: the framing bound, isolation as a refusal rather than a rule, the judge's family and the limit of what a ranking is, re-expression as a property of the bytes, and that an Arena result never takes the narrow path.
+Decided: the framing bound, contamination as a refusal rather than a rule, separation named as not an OS boundary, the judge's family and the limit of what a ranking is, re-expression as a property of the bytes, and that an Arena result never takes the narrow path.
 
 Deferred, and named: the four candidate-lifecycle park reasons (`arena_candidate_failed`, `arena_candidate_verify_failed`, `arena_candidate_freeze_invalid`, `arena_join_invalid`) belong to the child-workflow lifecycle in `03-technical-plan.md` §7 and are owned there, not restated here. A reason declared by two documents has no single owner, which is what `refusal-vocabulary.md` §6 refuses.

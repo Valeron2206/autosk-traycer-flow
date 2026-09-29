@@ -67,7 +67,7 @@ export function framingErrors(block, { candidateStartedAt } = {}) {
 }
 
 /**
- * Isolation, as a refusal rather than an instruction.
+ * Contamination, as a refusal rather than an instruction.
  *
  * Two candidates that saw each other are one candidate with extra steps, so a
  * contaminated candidate is refused and not downgraded.
