@@ -120,7 +120,7 @@ test("every recorded round is checked against the roster it ran under", () => {
   // and the two are genuinely different now, which is what the coupling hid.
   assert.notDeepEqual(PANEL_BY_ROUND[1], REQUIRED_PANEL);
   const recorded = readdirSync(path.join(ROOT, PANEL_DIR)).filter((name) => name.endsWith(".json")).sort();
-  assert.deepEqual(recorded, ["round-1.json", "round-2.json", "round-3.json", "round-4.json", "round-5.json", "round-6.json", "round-7.json", "round-8.json"]);
+  assert.deepEqual(recorded, ["round-1.json", "round-2.json", "round-3.json", "round-4.json", "round-5.json", "round-6.json", "round-7.json", "round-8.json", "round-9.json"]);
   for (const name of recorded) {
     const round = JSON.parse(readFileSync(path.join(ROOT, PANEL_DIR, name), "utf8"));
     assert.deepEqual(validatePanelRound(round), [], name);
@@ -218,6 +218,20 @@ test("round 8 is the fourth cloud round, its seats sat in four sessions, and it 
   assert.equal(computeAttestationState(candidate()), "pending_final_panel");
 });
 
+test("round 9 is the fifth cloud round, its seats sat in four sessions, and it counts toward nothing", () => {
+  const round = readRound(9);
+  assert.deepEqual(validatePanelRound(round), []);
+  assert.equal(PANEL_BY_ROUND[9], CLOUD_PANEL);
+  assert.equal(round.attempt, 1);
+  assert.equal(round.candidate_digest, "ebdab99cda3a0a605bab89a42a764fb03994a84f6d02a47b5e1b25a7f22c2bb9");
+  assert.deepEqual(round.seats.map((seat) => seat.verdict), ["pass", "pass", "fail", "fail"]);
+  const sessions = new Set(round.seats.map((seat) => seat.session_id));
+  assert.equal(sessions.size, 4);
+  assert.equal(candidate().files.some((file) => file.path === `${PANEL_DIR}/round-9.json`), false);
+  assert.equal(candidate().attestation.verdicts.some((verdict) => sessions.has(verdict.session_id)), false);
+  assert.equal(computeAttestationState(candidate()), "pending_final_panel");
+});
+
 test("a round recorded with a roster nobody required is refused", () => {
   // Decoupling the archive from today's constant is right; leaving it checked
   // against nothing is not. Replacing all four of round 1's seats with a roster
@@ -302,10 +316,10 @@ test("a round that records no decision is refused", () => {
 test("a round with no pinned roster cannot be validated", () => {
   // A round file can only be checked against what was required when it ran, so a
   // round whose requirement was never pinned is refused rather than waved
-  // through. Recording rounds 4 to 8 meant pinning the rosters they ran under;
-  // round 9 is not pinned because it has not run.
-  assert.deepEqual(validatePanelRound({ round: 9, seats: [] }), [
-    "round 9: no roster is pinned for it, so what it ran under is unknown",
+  // through. Recording rounds 4 to 9 meant pinning the rosters they ran under;
+  // round 10 is not pinned because it has not run.
+  assert.deepEqual(validatePanelRound({ round: 10, seats: [] }), [
+    "round 10: no roster is pinned for it, so what it ran under is unknown",
   ]);
 });
 
