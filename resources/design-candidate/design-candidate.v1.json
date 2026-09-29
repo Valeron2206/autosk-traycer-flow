@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "dbfbaa3829d25243c777f6e8480f499688806a1205501ce372849eec9d89069c"
+      "sha256": "190bdee17a18a228ca3077bb7d5b6298775dfcd55d298a173fb7b1e33e07dfa8"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -28,7 +28,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "38cb868268a7a998ab4fa9e383bcd35142a4af222dc9249460088e08d6ec05dc"
+      "sha256": "d982d1c1d432750d8add0adc6998ada2b0aea5f468fc29602bb20dbf65737ead"
     },
     {
       "path": "compat/autosk/manifest.v1.json",
@@ -164,7 +164,7 @@
     },
     {
       "path": "docs/contracts/requirement-revision.md",
-      "sha256": "75dd15b3fd339c26868404bfc0a1e1a5012a256ca6836dc0e50b3e3435bede37"
+      "sha256": "874453b3a366f626c03f322e0085bbec09c3bb75b05d7876619ebcca7385ab8f"
     },
     {
       "path": "docs/contracts/runtime-identity-lock.md",
@@ -200,15 +200,15 @@
     },
     {
       "path": "docs/contracts/workflow-factory.md",
-      "sha256": "de6ec23d4c012262013ee9b9e45c128e2cee3feb9c690afba817a3b23f87506c"
+      "sha256": "274f65a15e79b016c9041431e88ef507594513a5adafacfcd94171179fde3da1"
     },
     {
       "path": "docs/contracts/workflow-graph.md",
-      "sha256": "213015d3e3ab406a25e5b58657a9e067cb7d8380dbcf8e97bbce7a963d765e30"
+      "sha256": "2234404931c193fe987ab7b5e31ff54814cf0bd3318c2c4294cc8fac60c0a790"
     },
     {
       "path": "docs/program-capability-matrix.md",
-      "sha256": "b83a029364a22e7a0f2f1b9d71ad508834d6316a805629440e4c51307595ca1b"
+      "sha256": "997c988b6b2c9353b577293c52ed9390f20c6144352c473ab96b844f5ddf8430"
     },
     {
       "path": "docs/traycer-parity-registry.md",
@@ -712,11 +712,11 @@
     },
     {
       "path": "resources/program-capabilities/matrix.schema.json",
-      "sha256": "f1cb6132adec432239794bd67df686f8287e8b4048875e83f6a6c4afc27dfbb1"
+      "sha256": "383bbad9f49edfaabd83ff68b26561bc754523eb9157a55daddce349dbf9b1f2"
     },
     {
       "path": "resources/program-capabilities/matrix.v1.json",
-      "sha256": "6c494323fc5727d2d7b0905b96b7a008bdd992c0185d16c6185f79c2e92e8f91"
+      "sha256": "7c548807f365e2cfd6b95aefda6ec171e612c5a8290c36911fee56cffc87a011"
     },
     {
       "path": "resources/project-instructions/project-instructions-lock.example.json",
@@ -928,11 +928,11 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.schema.json",
-      "sha256": "f3dadc0a973bb2e956da1179b05abaa00d7cbc92e0aee3d473315de1870e1c2f"
+      "sha256": "564221893226b9a6d5f6c447ba229fd6bd98b90e509a45f49ee74507353187c8"
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "40d85c560da8ff92eb197db8ca8c29083d6c0b2aaa82a90f09ee91ebdd6f45e9"
+      "sha256": "6af24f9376137c78a47831c5ccaef89d93a3512b9fd15fe2b6860155cba244d2"
     },
     {
       "path": "scripts/produce-refusals-refusal-vocabulary.cases.json",
@@ -955,7 +955,7 @@
       "sha256": "9cf28952c6e9d967ed82ace094ad72a3322001f3844b8369469f5864f8473d4e"
     }
   ],
-  "candidate_digest": "51b1a63fe91b9456018b0b8ff47e4853aa50610288470266e3473dbc28d603f5",
+  "candidate_digest": "d78b471fdb09aacb68dcfd963c6167f78569a5cbdbabf845a18ec5a2246b1c5a",
   "dispositions": [
     {
       "issue": 3,

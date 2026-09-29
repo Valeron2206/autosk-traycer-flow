@@ -123,6 +123,10 @@
               "$ref": "#/$defs/id"
             }
           },
+          "domain": {
+            "description": "The domain whose owner decides what this predicate says: the record whose module implements the condition, which the evaluator's table binds to the predicate. Optional in the document, because the factory reads only ids; the program's capability check refuses a predicate of the v1 graph that names none, and names one owner for each domain it uses (ADR-107). Part of the digest: a predicate moved to another domain is another graph.",
+            "$ref": "#/$defs/id"
+          },
           "description": {
             "type": "string",
             "minLength": 1,

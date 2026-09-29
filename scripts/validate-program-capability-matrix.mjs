@@ -271,7 +271,7 @@ export function validateMatrix(matrix, inventory, parityRegistry, graph = parseJ
     "$schema", "schema_version", "matrix_version", "repository", "issue_range",
     "source_main_commit", "issue_inventory_path", "issue_inventory_digest",
     "source_parity_registry_path", "classification_policy", "summary", "records",
-    "preflight_primitives", "enforcement_points", "canonical_digest",
+    "preflight_primitives", "enforcement_points", "predicate_domains", "canonical_digest",
   ].sort();
   if (!exactKeys(matrix, expectedTopKeys)) errors.push("matrix top-level keys differ from the closed v1 schema");
   if (matrix.$schema !== "./matrix.schema.json") errors.push("matrix.$schema must reference ./matrix.schema.json");
@@ -469,6 +469,7 @@ export function validateMatrix(matrix, inventory, parityRegistry, graph = parseJ
 
   validatePreflightPrimitives(matrix.preflight_primitives, recordsByNumber, errors);
   validateEnforcementPoints(matrix.enforcement_points, recordsByNumber, errors, enforcementRequirements(graph));
+  validatePredicateDomains(matrix.predicate_domains, recordsByNumber, errors, predicateDomainRequirements(graph));
 
   const expectedDigest = digestMatrix(matrix);
   if (matrix.canonical_digest !== expectedDigest) errors.push(`matrix canonical_digest mismatch: expected ${expectedDigest}`);
@@ -759,6 +760,212 @@ export function validateEnforcementPoints(points, recordsByNumber, errors, requi
   validateReverseClaims(requirements.map((want) => want.point), (name) => seen.get(name)?.owner_issues, recordsByNumber, errors);
 }
 
+const DOMAIN_KEYS = Object.freeze(["decision", "delivery", "domain", "elements", "owner_issues"]);
+const DOMAIN_ID = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/u;
+export const PREDICATE_DOMAIN_DECISION = "ADR-107";
+const plural = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+/**
+ * The owners a graph's predicates need, read from the graph itself.
+ *
+ * Round 8 of #39 (R8-8) found the meaning of the graph's 433 predicates left
+ * to an unmapped "domain record": no predicate carried an owner, and the one
+ * check matched three example sentences, so the evaluator's table could bind
+ * `cond_001`'s "classification is valid" to a stub while `validate:capabilities`
+ * stayed green. The state facts a predicate reads are not a partition
+ * (`task_record` is read by 175 predicates and means something else in each),
+ * so each predicate names the domain whose owner decides it, and the
+ * requirement is the set of domains the graph uses. A predicate that names none
+ * is unowned. `predicates` counts the readers of a domain, for the message.
+ */
+export function predicateDomainRequirements(graph) {
+  if (!graph || typeof graph !== "object" || Array.isArray(graph)) return { domains: [], unowned: [], collisions: [] };
+  const counts = new Map();
+  const unowned = [];
+  const facts = graphNames(graph);
+  for (const predicate of asList(graph.predicates)) {
+    if (typeof predicate?.domain === "string" && DOMAIN_ID.test(predicate.domain)) counts.set(predicate.domain, (counts.get(predicate.domain) ?? 0) + 1);
+    else unowned.push(String(predicate?.id));
+  }
+  const domains = sorted(counts.keys());
+  return { domains: domains.map((domain) => ({ domain, predicates: counts.get(domain) })), unowned, collisions: domains.filter((domain) => facts.has(domain)) };
+}
+
+/**
+ * Every name the graph declares: steps and their no-transition reasons,
+ * workflows, entry steps, the facts predicates read, park and recovery reasons,
+ * caps and their reasons, decision options and the graph-level codes. A domain
+ * is named by a token none of them carries, so a backticked mention of a step,
+ * a fact or a reason in an obligation is never read as a claim on a domain
+ * (narrow re-review of 12f, L2).
+ */
+function graphNames(graph) {
+  const names = new Set();
+  const add = (value) => { if (typeof value === "string") names.add(value); };
+  for (const step of asList(graph.steps)) { add(step?.name); add(step?.no_transition_reason); }
+  for (const workflow of asList(graph.workflows)) { add(workflow?.name); add(workflow?.first_step); }
+  for (const entry of asList(graph.entry_steps)) add(entry?.step);
+  for (const predicate of asList(graph.predicates)) for (const fact of asList(predicate?.reads)) add(fact);
+  for (const guard of asList(graph.guards)) add(guard?.park_reason);
+  for (const row of asList(graph.recovery)) add(row?.reason);
+  for (const cap of asList(graph.caps)) { add(cap?.cycle); add(cap?.park_reason); }
+  for (const option of asList(graph.decision_options)) add(option);
+  if (graph.graph_reasons && typeof graph.graph_reasons === "object") for (const value of Object.values(graph.graph_reasons)) add(value);
+  return names;
+}
+
+/**
+ * The one sentence an owner's obligation carries for the domains it owns: each
+ * domain's name and its `delivery`, sorted by domain. The obligation is held to
+ * this text, so a negated or unrelated mention of a domain cannot stand for the
+ * claim, and a delivery that changes without the obligation is drift (review of
+ * 12f, L4).
+ */
+export function ownershipSentence(entries) {
+  const clauses = [...entries].sort((a, b) => (a.domain < b.domain ? -1 : a.domain > b.domain ? 1 : 0))
+    .map((entry) => `meaning of the \`${entry.domain}\` predicates: ${entry.delivery}`);
+  return `Owns predicate meaning (ADR-107): ${clauses.join("; ")}.`;
+}
+
+/** The phrases that claim a domain: "the `x` predicates", "every `x` predicate", "the predicates of `x`" and "the domain `x`". */
+const DOMAIN_CLAIMS = /`([a-z][a-z0-9_]*)` predicates?|predicates of `([a-z][a-z0-9_]*)`|domain `([a-z][a-z0-9_]*)`/gu;
+const OWNERSHIP_LEAD = "Owns predicate meaning (ADR-107)";
+
+/**
+ * Every predicate of the v1 graph has an owner: the domain it names is carried
+ * by one `required_for_v1` record whose implementation obligation names the
+ * domain, by the rule the preflight's primitives and the enforcement points
+ * follow, and the matrix names no domain the graph does not use.
+ *
+ * The graph registers only v1 workflows (ADR-090), so every predicate of it is
+ * a v1 predicate and a post-v1 owner is refused; a graph that carried a
+ * post-v1 workflow's predicates would need a rule for them, and this one does
+ * not invent it. An owner outside #3–#39 is refused by the issue range, and a
+ * domain has exactly one owner: two would leave the predicate's decision with
+ * neither. #18 keeps the mechanism (`graph.predicate-evaluation`, the table
+ * from each predicate id to its implementation), never the meaning of the
+ * predicates of a domain another record owns (ADR-097, ADR-107).
+ */
+export function validatePredicateDomains(entries, recordsByNumber, errors, requirements) {
+  if (!Array.isArray(entries)) {
+    errors.push("matrix predicate_domains must be an array naming who owns the meaning of each domain the v1 graph's predicates use");
+    return;
+  }
+  const seen = new Map();
+  const names = [];
+  for (const [index, entry] of entries.entries()) {
+    const prefix = `predicate_domains[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      errors.push(`${prefix} must be an object`);
+      continue;
+    }
+    if (!exactKeys(entry, DOMAIN_KEYS)) errors.push(`${prefix} keys differ from the closed v1 predicate domain shape`);
+    if (typeof entry.domain !== "string" || !DOMAIN_ID.test(entry.domain)) {
+      errors.push(`${prefix}.domain must name a domain of the graph's predicates`);
+      continue;
+    }
+    names.push(entry.domain);
+    if (seen.has(entry.domain)) errors.push(`${prefix}: \`${entry.domain}\` is named twice`);
+    else seen.set(entry.domain, entry);
+    if (entry.decision !== PREDICATE_DOMAIN_DECISION) errors.push(`${prefix}.decision must be ${PREDICATE_DOMAIN_DECISION}`);
+    if (!nonEmpty(entry.delivery, 20)) errors.push(`${prefix}.delivery must contain at least 20 characters`);
+    validateOwnership(entry, entry.domain, prefix, recordsByNumber, errors);
+    if (asList(entry.owner_issues).length > 1) {
+      errors.push(`${prefix}: \`${entry.domain}\` has ${asList(entry.owner_issues).length} owners; a predicate's meaning is one record's`);
+    }
+  }
+  const sortedNames = sorted(names);
+  if (names.some((name, index) => name !== sortedNames[index])) errors.push("matrix predicate_domains must be sorted by domain");
+  // A delivery describes its domain: it is embedded in the owner's sentence, which
+  // the claim scans skip, so it names no domain and claims none (narrow re-review
+  // of 12f, L1).
+  for (const [index, entry] of entries.entries()) {
+    if (!entry || typeof entry !== "object" || typeof entry.delivery !== "string") continue;
+    for (const name of sorted(seen.keys())) {
+      if (entry.delivery.includes(`\`${name}\``)) errors.push(`predicate_domains[${index}].delivery names domain \`${name}\`; a delivery describes its domain and claims no domain`);
+    }
+    for (const match of entry.delivery.matchAll(DOMAIN_CLAIMS)) {
+      const name = match[1] ?? match[2] ?? match[3];
+      if (!seen.has(name)) errors.push(`predicate_domains[${index}].delivery claims the \`${name}\` predicates, and the matrix has no such domain`);
+    }
+  }
+  const required = new Map(requirements.domains.map((want) => [want.domain, want]));
+  for (const id of requirements.unowned) errors.push(`predicate \`${id}\` names no domain, so no record owns what it decides`);
+  for (const want of requirements.domains) {
+    if (!seen.has(want.domain)) {
+      errors.push(`\`${want.domain}\` is read by ${plural(want.predicates, "predicate")} of the v1 graph and carried by no required_for_v1 record`);
+    }
+  }
+  for (const name of seen.keys()) {
+    if (!required.has(name)) errors.push(`\`${name}\` is not read by any predicate of the v1 graph; the matrix names only what it reads`);
+  }
+  for (const name of asList(requirements.collisions)) {
+    errors.push(`domain \`${name}\` is also a name the graph declares; a domain is named by a token no graph name carries`);
+  }
+  validateDomainClaims(seen, recordsByNumber, errors);
+}
+
+/**
+ * Where an owner's sentence stands: at the start of the obligation or after a
+ * full stop, outside a quotation. -1 when no occurrence does, so a sentence
+ * wrapped in a negation or quoted and disowned is not the owner's claim. A text
+ * check cannot read intent: prose that disowns a domain without naming it ("none
+ * of the above is this issue's") is beyond it, and the panel reads what a check
+ * cannot.
+ */
+function sentenceStart(text, sentence) {
+  for (let at = text.indexOf(sentence); at >= 0; at = text.indexOf(sentence, at + 1)) {
+    const before = text.slice(0, at);
+    const boundary = before === "" || /(?:\.|\n) $|\n$/u.test(before);
+    const quotes = [...before.matchAll(/["\u201c\u201d]/gu)].length;
+    if (boundary && quotes % 2 === 0) return at;
+  }
+  return -1;
+}
+
+/**
+ * What every obligation says about the domains, held to one closed form.
+ *
+ * An owner carries the sentence `ownershipSentence` derives from its entries,
+ * at a sentence boundary outside a quotation, once, and no obligation names a
+ * domain anywhere else: a mention outside the sentence is a non-owner's claim,
+ * or the owner's disowning or restating it, a record that owns no domain carries
+ * no ownership sentence, and a claim phrase naming a domain the matrix does not
+ * have is a stale claim
+ * that a rename would otherwise leave standing. Every record is read, post-v1
+ * ones included: only a `required_for_v1` record may own a domain, and none
+ * may claim one it does not.
+ */
+function validateDomainClaims(seen, recordsByNumber, errors) {
+  const names = new Set(seen.keys());
+  const byOwner = new Map();
+  for (const entry of seen.values()) {
+    for (const issue of asList(entry.owner_issues)) byOwner.set(issue, [...(byOwner.get(issue) ?? []), entry]);
+  }
+  for (const [issue, record] of recordsByNumber) {
+    if (typeof record.implementation_obligation_before_mvp !== "string") continue;
+    let text = record.implementation_obligation_before_mvp;
+    const owned = byOwner.get(issue);
+    if (!owned && text.includes(OWNERSHIP_LEAD)) errors.push(`#${issue} carries an ownership sentence but owns no domain`);
+    if (owned) {
+      const sentence = ownershipSentence(owned);
+      const at = sentenceStart(text, sentence);
+      if (at >= 0) text = text.slice(0, at) + text.slice(at + sentence.length);
+      else errors.push(`#${issue}'s implementation_obligation_before_mvp does not carry its ownership sentence for ${owned.map((entry) => `\`${entry.domain}\``).join(", ")}`);
+    }
+    for (const name of sorted(names)) {
+      if (!text.includes(`\`${name}\``)) continue;
+      errors.push(owned?.some((entry) => entry.domain === name)
+        ? `#${issue} names \`${name}\` in its implementation obligation outside the ownership sentence that carries it`
+        : `#${issue} names \`${name}\` in its implementation obligation but is not among its owners`);
+    }
+    for (const match of text.matchAll(DOMAIN_CLAIMS)) {
+      const name = match[1] ?? match[2] ?? match[3];
+      if (!names.has(name)) errors.push(`#${issue} claims the \`${name}\` predicates, and the matrix has no such domain`);
+    }
+  }
+}
+
 function mdEscape(value) {
   return String(value).replaceAll("|", "\\|").replaceAll("\n", " ");
 }
@@ -829,7 +1036,7 @@ export function renderDocumentation(matrix) {
     "",
     "## Точки исполнения, на которых стоит граф",
     "",
-    "Граф workflow (`resources/workflow-graph/workflow-graph.v1.json`) объявляет то, что исполняет только продуктовый код: предикаты, которые кто-то должен вычислить, guards, чей `authority` называет человека или policy, workflows, которые кто-то должен собрать и зарегистрировать, и workflows Arena, чей runtime решает её контракт. `validate:capabilities` выводит эти точки из самого графа (`enforcementRequirements`) и держит их к матрице по тому же правилу, что примитивы preflight: каждую несёт запись `required_for_v1`, чьё `implementation_obligation_before_mvp` называет её и свои поверхности, запись, которая её называет, — среди владельцев, а владелец точки с workflows называет каждый из них; владелец runtime Arena — один и тот же в матрице, в строке статуса контракта Arena и в реестре parity (ADR-097). Смысл каждого предиката остаётся за записью его домена.",
+    "Граф workflow (`resources/workflow-graph/workflow-graph.v1.json`) объявляет то, что исполняет только продуктовый код: предикаты, которые кто-то должен вычислить, guards, чей `authority` называет человека или policy, workflows, которые кто-то должен собрать и зарегистрировать, и workflows Arena, чей runtime решает её контракт. `validate:capabilities` выводит эти точки из самого графа (`enforcementRequirements`) и держит их к матрице по тому же правилу, что примитивы preflight: каждую несёт запись `required_for_v1`, чьё `implementation_obligation_before_mvp` называет её и свои поверхности, запись, которая её называет, — среди владельцев, а владелец точки с workflows называет каждый из них; владелец runtime Arena — один и тот же в матрице, в строке статуса контракта Arena и в реестре parity (ADR-097). Смысл каждого предиката решает владелец его домена (раздел «Предикаты графа и их владельцы», ADR-107), а не владелец таблицы.",
     "",
     "| Point | Read from | ADR | Carried by | Surfaces | Delivery |",
     "| --- | --- | --- | --- | --- | --- |",
@@ -837,6 +1044,20 @@ export function renderDocumentation(matrix) {
   for (const entry of list(matrix.enforcement_points)) {
     if (!entry || typeof entry !== "object") continue;
     lines.push(`| \`${entry.point}\` | ${entry.source} | ${entry.decision} | ${carriers(entry)} | ${mdEscape(list(entry.elements).map(surface).join("; "))} | ${mdEscape(entry.delivery)} |`);
+  }
+
+  lines.push(
+    "",
+    "## Предикаты графа и их владельцы",
+    "",
+    "Каждый предикат графа называет `domain` (`resources/workflow-graph/workflow-graph.v1.json`); у домена один владелец — запись `required_for_v1`, чьё `implementation_obligation_before_mvp` называет домен и то, что он решает. `validate:capabilities` выводит домены из графа (`predicateDomainRequirements`): предикат без домена, домен без записи, запись без предиката и домен, чей владелец не `required_for_v1`, — ошибки. Таблицу от id предиката к реализации и места решения держит #18 (`graph.predicate-evaluation`); смысл предиката решает модуль владельца его домена (ADR-107).",
+    "",
+    "| Domain | Owner | ADR | Meaning |",
+    "| --- | --- | --- | --- |",
+  );
+  for (const entry of list(matrix.predicate_domains)) {
+    if (!entry || typeof entry !== "object") continue;
+    lines.push(`| \`${entry.domain}\` | ${carriers(entry)} | ${entry.decision} | ${mdEscape(entry.delivery)} |`);
   }
 
   lines.push("", "## Planned after v1", "");
