@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -25,6 +27,7 @@ import {
   validateReadme,
   preflightRequirements,
 } from "../scripts/validate-program-capability-matrix.mjs";
+import { graphDigest } from "../src/host/workflow-graph-canonical.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -1487,9 +1490,9 @@ test("narrow re-review L3: the Ticket workflow's implement → verify edge is de
 test("narrow re-review L4: no delivery claims what none of its predicates decides", () => {
   const data = fixture();
   const entry = entryOf(data, "delivery_integration");
-  assert.doesNotMatch(entry.delivery, /sign/u, "cond_143 (planning_signing_unavailable) is #5's; none of the seven decides signing");
+  assert.doesNotMatch(entry.delivery, /sign/u, "cond_143 (planning_signing_unavailable) is #5's; none of the eight decides signing");
   const predicates = GRAPH_DOCUMENT.predicates.filter((item) => item.domain === "delivery_integration");
-  assert.deepEqual(predicates.map((item) => item.id).sort(), ["cond_435", "cond_436", "cond_437", "cond_451", "cond_452", "cond_453", "cond_458"]);
+  assert.deepEqual(predicates.map((item) => item.id).sort(), ["cond_435", "cond_436", "cond_437", "cond_451", "cond_452", "cond_453", "cond_458", "cond_463"]);
   for (const item of predicates) assert.doesNotMatch(item.description, /signing|signature/u, item.id);
   // The join's exit that names a Ticket's binding is named where it lives.
   assert.match(entryOf(data, "child_join").delivery, /ticket_join_invalid/u);
@@ -1684,4 +1687,70 @@ test("narrow re-review nits: requirement-revision.md points at the specification
   assert.doesNotMatch(contract, /not unowned[^\n]*not unowned/u);
   assert.doesNotMatch(contract, /matrix v1 \(ADR-107\):/u, "no double colon");
   assert.match(contract, /The mechanical rebuild is not specified by this contract: `rebuild_anchor` and the operations it drives are specified in `03-technical-plan\.md` §5 \("Contest и anchor changes"\) and by the graph, and their runtime is issue #25's in matrix v1 \(ADR-107\), not implemented yet and not unowned\./u);
+});
+
+// --- CodeRabbit on #279: a graph given with --graph is validated, and the result names it ---------------------
+
+const SHIPPED_GRAPH = path.join(ROOT, "resources/workflow-graph/workflow-graph.v1.json");
+
+/** The validator as the command line runs it, with a graph override written to a directory of its own. */
+function runValidator(t, override) {
+  const args = ["scripts/validate-program-capability-matrix.mjs"];
+  if (override !== undefined) {
+    const directory = mkdtempSync(path.join(tmpdir(), "autosk-graph-override-"));
+    t.after(() => rmSync(directory, { recursive: true, force: true }));
+    const file = path.join(directory, "graph.json");
+    writeFileSync(file, typeof override === "string" ? override : `${JSON.stringify(override, null, 2)}\n`);
+    args.push("--graph", file);
+    return { file, ...spawnSync(process.execPath, args, { cwd: ROOT, encoding: "utf8" }) };
+  }
+  return spawnSync(process.execPath, args, { cwd: ROOT, encoding: "utf8" });
+}
+const shippedGraph = () => JSON.parse(readFileSync(SHIPPED_GRAPH, "utf8"));
+
+test("a graph override is validated before anything is derived from it: a predicate removed with the digest left stale is refused, not attested (CodeRabbit on #279)", (t) => {
+  // The shipped graph is left as it is: this is the run `npm run validate:capabilities` makes.
+  const shipped = runValidator(t);
+  assert.equal(shipped.status, 0, shipped.stderr);
+  assert.match(shipped.stdout, /^OK: \d+ program issues; \d+ required_for_v1; \d+ planned_after_v1; digest [0-9a-f]{64}\n$/u);
+  assert.doesNotMatch(shipped.stdout, /graph/u, "the default run names an override");
+  // One predicate omitted from a domain that keeps others: the matrix's ownership check still passes on what is left,
+  // so before this only the graph's own digest could say the input is not the graph that was shipped.
+  const cut = shippedGraph();
+  const removed = cut.predicates.pop();
+  assert.ok(removed, "no predicate to remove");
+  const stale = runValidator(t, cut);
+  assert.equal(stale.status, 1, `a graph with a predicate removed was attested: ${stale.stdout}`);
+  assert.match(stale.stderr, /graph_digest_stale/u);
+  assert.match(stale.stderr, new RegExp(`--graph ${stale.file.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "u"), "the refusal does not name the graph");
+  assert.doesNotMatch(stale.stdout, /^OK/mu);
+});
+
+test("a graph override that validates is attested by name: the result carries the graph's path and canonical_digest, which the default run does not (CodeRabbit on #279)", (t) => {
+  const copy = shippedGraph();
+  const ok = runValidator(t, copy);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stdout, /^OK: [^\n]*digest [0-9a-f]{64}; graph [^\n]+ canonical_digest [0-9a-f]{64}\n$/u);
+  assert.ok(ok.stdout.includes(`graph ${ok.file} canonical_digest ${copy.canonical_digest}`), ok.stdout);
+  // A graph that is resealed after the cut is a different graph, still refused where it breaks the graph's own rules.
+  const resealed = shippedGraph();
+  resealed.predicates.pop();
+  resealed.canonical_digest = graphDigest(resealed);
+  const refused = runValidator(t, resealed);
+  assert.equal(refused.status, 1, "a resealed graph with a predicate its guards still name was attested");
+  assert.doesNotMatch(refused.stdout, /^OK/mu);
+  // Not JSON, and JSON that is not a graph, are refused before any ownership is derived.
+  for (const bad of ["{not json", "[]", { predicates: [], guards: [], transitions: [], workflows: [] }]) {
+    const result = runValidator(t, bad);
+    assert.equal(result.status, 1, JSON.stringify(bad));
+    assert.doesNotMatch(result.stdout, /^OK/mu);
+    assert.doesNotMatch(result.stderr, /is not required by the v1 graph/u, "ownership was derived from an input that is no graph");
+  }
+});
+
+test("the override's decision is recorded where the repository records them (CodeRabbit on #279)", () => {
+  const decisions = readFileSync(path.join(ROOT, "04-decisions.md"), "utf8");
+  assert.match(decisions, /- Изменено ADR-108 \(CodeRabbit на #279[^\n]*`--graph`[^\n]*`validateGraph`[^\n]*`canonical_digest`/u);
+  const log = readFileSync(path.join(ROOT, "docs/cloud-agent-priming.md"), "utf8");
+  assert.match(log, /CodeRabbit on #279 \(summary, one retained concern, inferred\): [^\n]*fixed in this debt's commit, test first/u);
 });

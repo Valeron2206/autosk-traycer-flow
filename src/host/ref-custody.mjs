@@ -7,15 +7,28 @@
  * (ADR-102): autoskd persists the helper intent,
  * signs the request and calls it, and it performs one expected-old
  * `update-ref` transaction under its lock. What the host owns is the request:
- * the action of the helper's closed protocol and the exact ref updates that
- * action carries, formed here and never widened by a caller, and the reading of
- * the answer against the request it made. Nothing here runs git.
+ * the action of the helper's closed protocol, the identity of the operation
+ * that asks, and the exact ref updates that action carries, formed here and never
+ * widened by a caller, and the reading of the answer against the request it made.
+ * Nothing here runs git.
+ *
+ * The identity is the pair the daemon-side intent requires and persists before
+ * the socket call, `owner_operation_id` and `request_id`
+ * (`ref-custody-helper-intents.schema.json`; the wire body's `operation_id` and
+ * `request_id` are the same two values). The host supplies it because a retry
+ * after a crash has to reach the intent and the journal of the request already
+ * made rather than mint a second one (02 §2): the daemon finds the intent by the
+ * pair, and only the asking operation can say it is asking again. The pair is
+ * derived from the operation (`custodyIdentity`), so it is the same after the
+ * crash without being read back from anywhere.
  *
  * The client is injected. The product has no helper yet, so the default client
  * answers no action and every request is refused as a missing capability: a
  * host with no helper does not fall back to writing the ref itself (ADR-095).
  * Tests hand the drivers a git-backed stand-in (`test/support/git-ref-custody.mjs`).
  */
+import { createHash } from 'node:crypto';
+
 import { demand, immutable, oidFormat } from '../runtime/contracts.mjs';
 
 /** The helper's closed action roster, in the order of its wire schema. */
@@ -62,6 +75,38 @@ export const HOST_REF_CUSTODY_ACTIONS = immutable(Object.keys(SHAPES));
 /** The client a product host has: no helper, so no action. */
 export const NO_REF_CUSTODY = Object.freeze({});
 
+/** The intent schema's `uuid`: lowercase, version 4. */
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+/** A UUID v4 out of 16 bytes of a digest: the version and variant bits set, the rest the digest's. */
+function uuidFrom(text) {
+  const bytes = createHash('sha256').update(text, 'utf8').digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * The identity one operation asks the helper under, for one action.
+ *
+ * `owner_operation_id` is the operation's, the same across its actions;
+ * `request_id` is one request's — a different one per action, as the helper's
+ * transfer takes a different request for each of its two calls. Both derive
+ * from the operation's own id, so an operation that asks again after a crash
+ * asks under the same pair and the daemon finds the intent it persisted.
+ */
+export function custodyIdentity(operationId, action) {
+  demand(typeof operationId === 'string' && operationId.length > 0, 'cas_conflict',
+    'A request is made under an operation, and none is named', { action });
+  demand(typeof action === 'string' && Object.hasOwn(SHAPES, action), 'cas_conflict',
+    'The host asks the helper for no such action', { action });
+  return Object.freeze({
+    owner_operation_id: uuidFrom(`autosk-flow/ref-custody-owner-operation/v1\0${operationId}`),
+    request_id: uuidFrom(`autosk-flow/ref-custody-request/v1\0${action}\0${operationId}`),
+  });
+}
+
 const NOT_APPLIED = Object.freeze(['expected_old_mismatch', 'packed_refs_drift', 'authorization_invalid']);
 const isOid = (value) => oidFormat(value) !== null;
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -75,9 +120,13 @@ function holds(value, expect, old) {
 }
 
 /** The request, formed and checked against the action's shape; refused before anything is asked. */
-function formRequest(action, refUpdates) {
+function formRequest(action, refUpdates, identity) {
   const shape = Object.hasOwn(SHAPES, action) ? SHAPES[action] : null;
   demand(shape !== null, 'cas_conflict', 'The host asks the helper for no such action', { action });
+  // The pair the daemon-side intent persists: without it a retry could only mint a second request.
+  demand(isRecord(identity) && Object.keys(identity).length === 2
+    && UUID_V4.test(identity.owner_operation_id) && UUID_V4.test(identity.request_id), 'cas_conflict',
+  'The request names no operation and request identity the daemon-side intent can be found by', { action });
   demand(Array.isArray(refUpdates) && refUpdates.length === shape.length, 'cas_conflict',
     'The request does not carry the ref updates its action does', { action });
   const keys = new Set();
@@ -104,7 +153,12 @@ function formRequest(action, refUpdates) {
   // One Epic and one object format per request, as the helper's wire requires.
   demand(keys.size === 1, 'cas_conflict', 'One request names one Epic', { action });
   demand(formats.size === 1, 'cas_conflict', 'One request uses one object format', { action });
-  return Object.freeze({ action, ref_updates: Object.freeze(updates) });
+  return Object.freeze({
+    action,
+    owner_operation_id: identity.owner_operation_id,
+    request_id: identity.request_id,
+    ref_updates: Object.freeze(updates),
+  });
 }
 
 /** The object format a formed request is in: the one its OIDs share. */
@@ -138,8 +192,8 @@ function answersUpdate(observation, update, status, format) {
  * `planning_ref_capability_missing`, the code the helper's contract maps its
  * capability failures to, whatever the action.
  */
-export async function askCustody(custody, action, refUpdates) {
-  const request = formRequest(action, refUpdates);
+export async function askCustody(custody, action, refUpdates, identity) {
+  const request = formRequest(action, refUpdates, identity);
   const ask = isRecord(custody) && Object.hasOwn(custody, action) ? custody[action] : null;
   demand(typeof ask === 'function', 'planning_ref_capability_missing',
     'No ref-custody helper answers this action, and the host never writes the ref itself', { action });

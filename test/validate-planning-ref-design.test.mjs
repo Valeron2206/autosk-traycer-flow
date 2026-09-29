@@ -2266,7 +2266,9 @@ test("the contract names the nine-action roster and the staging actions' refusal
   assert.match(contract, /validate all nine action-discriminated ref-custody request\/response field sets/u);
   const staging = fixture()["docs/contracts/epic-staging.md"] ?? readFileSync(path.join(path.dirname(OPERATION_SCHEMA_PATH), "..", "..", "docs/contracts/epic-staging.md"), "utf8");
   assert.match(staging, /`create_staging`[^\n]*`cas_conflict`/u);
-  assert.match(staging, /`advance_staging`[^\n]*`foreign_ref_movement`/u);
+  // A staging ref that is neither the base nor the apply's own commit is receipt_missing, not the delta driver's own name for it (debt 12g).
+  assert.match(staging, /`advance_staging`[^\n]*refused before the helper is asked, as `receipt_missing`/u);
+  assert.doesNotMatch(staging, /before the apply asks is `foreign_ref_movement`/u);
   assert.match(staging, /`delete_staging`[^\n]*`staging_moved_after_pass`/u);
 });
 

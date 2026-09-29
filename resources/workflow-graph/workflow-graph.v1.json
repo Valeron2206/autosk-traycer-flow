@@ -3597,10 +3597,11 @@
         "base_oid",
         "integration_receipts",
         "planning",
-        "recorded_target_base"
+        "recorded_target_base",
+        "staging_commit_oid"
       ],
       "domain": "staging_aggregate",
-      "description": "у применённой approved delta нет durable integration receipt либо lineage от recorded_target_base до staging head содержит коммит сверх разрешённого: commits planning ref до verified planning_head (пока recorded_target_base = planning.base_oid) либо ровно один planning replay commit с receipt, затем только delta commits с receipt — human с park.reason=receipt_missing"
+      "description": "у применённой approved delta нет durable integration receipt, либо lineage от recorded_target_base до staging head содержит коммит сверх разрешённого (planning-ref commits до verified planning_head либо один planning replay commit, затем только receipted deltas), либо staging ref отстал от commit, который называет receipt, либо recipe или journal apply не ручаются за него — human с park.reason=receipt_missing; ref на expected_commit_oid recipe — apply уже сделан: receipt из recipe, второго запроса нет"
     },
     {
       "id": "cond_426",
@@ -3789,13 +3790,14 @@
     {
       "id": "cond_444",
       "reads": [
+        "delivery_profile_digest",
         "integration_authorization",
         "staging_acceptance",
         "staging_commit_oid",
         "staging_tree_oid"
       ],
       "domain": "target_integration",
-      "description": "до CAS acceptance больше не называет current staging commit/tree или aggregate record, либо IntegrationAuthorizationRecord, который она называет, expired/revoked/replaced или не сходится с head своего scope под integration_authorization_head — CAS не выполняется, human с park.reason=acceptance_stale; target ref не двигается"
+      "description": "до CAS acceptance больше не называет current staging commit/tree или aggregate record, либо delivery_profile_digest сменился, либо IntegrationAuthorizationRecord, который она называет, expired/revoked/replaced или не сходится с head своего scope под integration_authorization_head — CAS не выполняется, human с park.reason=acceptance_stale; target ref не двигается"
     },
     {
       "id": "cond_446",
@@ -3863,7 +3865,7 @@
         "staging_tree_oid"
       ],
       "domain": "delivery_integration",
-      "description": "completion predicate не выполнен, не читается или выполнен не на delivered commit с accepted staging tree над recorded target base; в том числе PR/entry смержен, а target tree ≠ accepted staging tree — human с park.reason=completion_predicate_unmet; ветку host не двигает; смерженное непринятое дерево — как post_cas_mismatch: ребра пересборки нет, история не переписывается"
+      "description": "completion predicate не выполнен, не читается или выполнен не на delivered commit с accepted staging tree над recorded target base — human с park.reason=completion_predicate_unmet; ветку host не двигает; доставка, уже принятая в target с чужим деревом, — отдельная остановка раньше (cond_463)"
     },
     {
       "id": "cond_454",
@@ -3950,6 +3952,47 @@
       ],
       "domain": "loop_caps",
       "description": "подтверждены findings and candidate_keepalive phase=audit_retained и transition_takings >= cap — human с park.reason=review_cap"
+    },
+    {
+      "id": "cond_461",
+      "reads": [
+        "controlling_anchor_digest",
+        "pending_anchor"
+      ],
+      "domain": "anchor_binding",
+      "description": "controlling digest/pending_anchor/anchor mismatch до передачи профилю доставки — при первом входе, при каждом ожидании PR или entry очереди и при resume в origin после epic_boundary_invalid: atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor до hand-off; delivered commit на target этим не отменяется (deliver_staging → cleanup стоит раньше), ветку host не двигает; открытый PR или entry очереди отозван до нового hand-off после rebuild anchor, старый delivery receipt void"
+    },
+    {
+      "id": "cond_462",
+      "reads": [
+        "delivery_profile_digest",
+        "integration_authorization",
+        "staging_acceptance",
+        "staging_commit_oid",
+        "staging_tree_oid"
+      ],
+      "domain": "target_integration",
+      "description": "до передачи профилю доставки acceptance больше не называет current staging commit/tree или aggregate record, либо delivery_profile_digest сменился, либо IntegrationAuthorizationRecord, который она называет, expired/revoked/replaced или не сходится с head своего scope — hand-off не выполняется и не повторяется, human с park.reason=acceptance_stale; старый delivery receipt void, открытый PR или entry очереди отозван до нового hand-off (как t_579); ветку host не двигает; новая acceptance — accept_staging"
+    },
+    {
+      "id": "cond_463",
+      "reads": [
+        "completion_predicate",
+        "delivery_receipt",
+        "recorded_target_base",
+        "staging_tree_oid"
+      ],
+      "domain": "delivery_integration",
+      "description": "delivery receipt говорит, что PR или entry очереди смержен, а target tree ≠ accepted staging tree либо recorded target base — не предок доставленного commit — human с park.reason=completion_predicate_unmet раньше проверки anchor и acceptance: смерженное непринятое дерево — как post_cas_mismatch, ребра пересборки нет, история не переписывается; ветку host не двигает"
+    },
+    {
+      "id": "cond_464",
+      "reads": [
+        "apply_outcome",
+        "approved_deltas"
+      ],
+      "domain": "staging_aggregate",
+      "description": "apply не смог выполнить git-команду либо прочитать или записать recipe journal (диск, права): apply_outcome=environment_failure — не verdict о delta и не движение staging; recipe, уже записанный, остаётся, и resume в apply_staging продолжает из него (commit helper а на expected_commit_oid — apply уже сделан, второго запроса нет) — human с park.reason=environment_failure"
     }
   ],
   "steps": [
@@ -8931,6 +8974,38 @@
         "actor": "agent"
       },
       "park_reason": "review_cap"
+    },
+    {
+      "id": "guard_586",
+      "predicate": "cond_461",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "blocked_anchor"
+    },
+    {
+      "id": "guard_587",
+      "predicate": "cond_462",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "acceptance_stale"
+    },
+    {
+      "id": "guard_588",
+      "predicate": "cond_463",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "completion_predicate_unmet"
+    },
+    {
+      "id": "guard_589",
+      "predicate": "cond_464",
+      "authority": {
+        "actor": "agent"
+      },
+      "park_reason": "environment_failure"
     }
   ],
   "transitions": [
@@ -13735,7 +13810,7 @@
       "id": "t_547",
       "from": "apply_staging",
       "to": "apply_staging",
-      "priority": 4,
+      "priority": 5,
       "guards": [
         "guard_551"
       ]
@@ -13744,7 +13819,7 @@
       "id": "t_548",
       "from": "apply_staging",
       "to": "aggregate_verify",
-      "priority": 5,
+      "priority": 6,
       "guards": [
         "guard_552"
       ]
@@ -13951,7 +14026,7 @@
       "id": "t_573",
       "from": "deliver_staging",
       "to": "deliver_staging",
-      "priority": 1,
+      "priority": 4,
       "guards": [
         "guard_577"
       ]
@@ -13960,7 +14035,7 @@
       "id": "t_574",
       "from": "deliver_staging",
       "to": "human",
-      "priority": 2,
+      "priority": 5,
       "guards": [
         "guard_578"
       ]
@@ -14005,7 +14080,7 @@
       "id": "t_579",
       "from": "deliver_staging",
       "to": "apply_staging",
-      "priority": 3,
+      "priority": 6,
       "guards": [
         "guard_583"
       ]
@@ -14026,6 +14101,42 @@
       "priority": 13,
       "guards": [
         "guard_585"
+      ]
+    },
+    {
+      "id": "t_582",
+      "from": "deliver_staging",
+      "to": "human",
+      "priority": 2,
+      "guards": [
+        "guard_586"
+      ]
+    },
+    {
+      "id": "t_583",
+      "from": "deliver_staging",
+      "to": "human",
+      "priority": 3,
+      "guards": [
+        "guard_587"
+      ]
+    },
+    {
+      "id": "t_584",
+      "from": "deliver_staging",
+      "to": "human",
+      "priority": 1,
+      "guards": [
+        "guard_588"
+      ]
+    },
+    {
+      "id": "t_585",
+      "from": "apply_staging",
+      "to": "human",
+      "priority": 4,
+      "guards": [
+        "guard_589"
       ]
     }
   ],
@@ -14076,13 +14187,14 @@
       "reason": "acceptance_stale",
       "parks_at": [
         "accept_staging",
+        "deliver_staging",
         "integrate_staging"
       ],
       "resume_targets": [
         "accept_staging",
         "human"
       ],
-      "required_state": "Section 2 parks with this reason at accept_staging, integrate_staging: the accepted identity is not the current staging identity; human с park.reason=acceptance_stale; CAS не выполняется, target ref не двигается"
+      "required_state": "Section 2 parks with this reason at accept_staging, deliver_staging, integrate_staging: the accepted identity is not the current staging identity; human с park.reason=acceptance_stale; CAS не выполняется и hand-off профилю доставки не выполняется и не повторяется, target ref не двигается; at deliver_staging the old delivery receipt is void and the open PR or queue entry is withdrawn before the new acceptance's hand-off, as for completion_predicate_unmet; the authorization record and the delivery profile digest are re-read there as at integrate_staging"
     },
     {
       "reason": "aggregate_binding_void",
@@ -14515,6 +14627,7 @@
         "arena_join",
         "commit_on_pass",
         "contest_join",
+        "deliver_staging",
         "dispatch_ticket_dag",
         "done",
         "freeze",
@@ -14548,7 +14661,7 @@
         "synthesize_panel",
         "verify"
       ],
-      "required_state": "Section 2 parks with this reason at accept, accept_staging, aggregate_verify, apply_staging, arena_join, commit_on_pass, contest_join, dispatch_ticket_dag, freeze, integrate, integrate_staging, narrow_review_join, panel_join, record_artifact_pass, record_code_verdict, record_editorial_exemption, review_join, ticket_join: atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor"
+      "required_state": "Section 2 parks with this reason at accept, accept_staging, aggregate_verify, apply_staging, arena_join, commit_on_pass, contest_join, deliver_staging, dispatch_ticket_dag, freeze, integrate, integrate_staging, narrow_review_join, panel_join, record_artifact_pass, record_code_verdict, record_editorial_exemption, review_join, ticket_join: atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor"
     },
     {
       "reason": "brief_alignment_required",
@@ -14737,13 +14850,15 @@
     {
       "reason": "environment_failure",
       "parks_at": [
-        "aggregate_verify"
+        "aggregate_verify",
+        "apply_staging"
       ],
       "resume_targets": [
         "aggregate_verify",
-        "human"
+        "apply_staging"
       ],
-      "required_state": "Section 2 parks with this reason at aggregate_verify: aggregate outcome=indeterminate, environment_outcome=environment_failure — not a verdict; human с park.reason=environment_failure; target ref не двигается"
+      "required_state": "Section 2 parks with this reason at aggregate_verify, apply_staging: at aggregate_verify aggregate outcome=indeterminate, environment_outcome=environment_failure — not a verdict; at apply_staging a git command or the recipe journal (a full disk, a directory the process may not use) could not run: nothing is half done and no verdict was made, and a resume runs the apply again from its recipe if one was recorded — a commit the helper made is recovered, not asked again; human с park.reason=environment_failure; target ref не двигается; resume re-enters the step that stood",
+      "resume_scope": "origin"
     },
     {
       "reason": "epic_boundary_invalid",
@@ -14844,7 +14959,7 @@
         "verify_target"
       ],
       "resume_scope": "origin",
-      "required_state": "Recorded by the daemon for an autosk-planned task wherever it stands — every Epic step (the vocabulary's epic_step class), human, and the shared steps an Epic stands on: project binding/path fixed and the pre-side-effect assert PASS again. A resume re-enters only the step the park recorded as its origin, so no resume lands past a gate, on cleanup or done before the read-back, or in Quick's integration. Acceptance and anchor are re-checked at integrate_staging only, whose guards read them and whose CAS is idempotent; verify_target re-reads the target after the CAS and deliver_staging the completion predicate, so an origin resume into deliver_staging re-runs the hand-off without re-checking the anchor (04 risk 8)."
+      "required_state": "Recorded by the daemon for an autosk-planned task wherever it stands — every Epic step (the vocabulary's epic_step class), human, and the shared steps an Epic stands on: project binding/path fixed and the pre-side-effect assert PASS again. A resume re-enters only the step the park recorded as its origin, so no resume lands past a gate, on cleanup or done before the read-back, or in Quick's integration. Acceptance and anchor are re-checked at integrate_staging and at deliver_staging, whose guards read them before the CAS or the hand-off (the CAS is idempotent, and the hand-off is not made or repeated over a moved anchor or a stale acceptance: blocked_anchor, acceptance_stale; ADR-108); verify_target only re-reads the target the CAS already moved, so an origin resume into it re-checks neither and refuses nothing an anchor moved after the CAS."
     },
     {
       "reason": "fix_provider_unavailable",
@@ -15461,7 +15576,7 @@
         "apply_staging",
         "human"
       ],
-      "required_state": "Section 2 parks with this reason at apply_staging: an applied delta has no durable integration receipt, a Ticket has more than one integration receipt, or the staging lineage from recorded_target_base carries a commit beyond what it admits — first the planning-ref commits up to the verified planning_head (first stage) or exactly one receipted planning replay commit (after a re-stage), then receipted delta commits only; human с park.reason=receipt_missing; target ref не читается и не меняется"
+      "required_state": "Section 2 parks with this reason at apply_staging: the staging ref and the receipts do not describe one line — an applied delta has no durable integration receipt, a Ticket has more than one, the lineage from recorded_target_base carries a commit beyond planning commits (to planning_head, or one receipted replay commit) and receipted deltas, the ref sits behind a commit a receipt names, or the journal cannot vouch for that key; human с park.reason=receipt_missing; target ref не читается и не меняется. The recipe restores a crash's loss: the helper's commit at its expected commit is the apply already done, the receipt comes from it, no second helper request. The graph rebuilds nothing: the person restores the line (a moved ref is deleted by the OID the refused cleanup reports as staging_moved_after_pass and made again in a new generation; a recipe file that cannot vouch is renamed <key>.recipe.quarantined, refusing that key alone), each delta is re-applied under a fresh operation, and apply_staging resumes"
     },
     {
       "reason": "review_cap",
@@ -15534,7 +15649,7 @@
         "apply_staging",
         "human"
       ],
-      "required_state": "Section 2 parks with this reason at aggregate_verify, accept_staging: staging moved after aggregate PASS, so the binding is void; human с park.reason=staging_moved_after_pass; resume goes back through apply_staging's receipt and lineage check from recorded_target_base (planning-ref commits to the verified planning_head on first stage, or exactly one receipted planning replay commit; then receipted deltas), or rebuilds staging at the recorded base (recorded_target_base unchanged: cleanupStaging by the recorded staging OID, createStaging at recorded_target_base, then the same planning commits or receipted replay commit and the receipted deltas) — the staging ref moved, not the target, so this is no re-stage onto a moved target; target ref не двигается"
+      "required_state": "Section 2 parks with this reason at aggregate_verify, accept_staging: staging moved after aggregate PASS, so the binding is void; human с park.reason=staging_moved_after_pass; resume goes back through apply_staging's receipt and lineage check from recorded_target_base (planning-ref commits to the verified planning_head on first stage, or exactly one receipted planning replay commit; then receipted deltas), or rebuilds staging at the recorded base (recorded_target_base unchanged; the person does it, as receipt_missing's row says: a new generation of the staging record, the planning commits or one receipted replay commit, each delta re-applied under a fresh operation) — the staging ref moved, not the target, so this is no re-stage onto a moved target; target ref не двигается"
     },
     {
       "reason": "tech_plan_readiness_required",
@@ -16185,7 +16300,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
+          "binds": "ae97f30231babf5d8486ff7d4198f9c69fae607c3269a659a7743636ac41c7cd",
           "cells": [
             "blocked_anchor, gate child",
             "`<gate_join_step>` после child done",
@@ -16209,7 +16324,7 @@
           ],
           "cells": [
             "blocked_anchor, нет gate-ребёнка",
-            "`accept`, `accept_staging`, `aggregate_verify`, `apply_staging`, `commit_on_pass`, `dispatch_ticket_dag`, `freeze`, `integrate`, `integrate_staging`, `record_artifact_pass`, `record_code_verdict`, `record_editorial_exemption`, `ticket_join`",
+            "`accept`, `accept_staging`, `aggregate_verify`, `apply_staging`, `commit_on_pass`, `deliver_staging`, `dispatch_ticket_dag`, `freeze`, `integrate`, `integrate_staging`, `record_artifact_pass`, `record_code_verdict`, `record_editorial_exemption`, `ticket_join`",
             "шаг сам atomically ensure pending_anchor(reason, identity), human с park.reason=blocked_anchor: gate-ребёнка, который бы это сделал, у него нет"
           ],
           "case": "no_gate_child",
@@ -16221,7 +16336,7 @@
             "admits": [],
             "excludes": []
           },
-          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f"
+          "binds": "ae97f30231babf5d8486ff7d4198f9c69fae607c3269a659a7743636ac41c7cd"
         },
         {
           "covers": [
@@ -16251,11 +16366,11 @@
           "covers": [
             "epic_boundary_invalid"
           ],
-          "binds": "385af4a31a03d0967a3e7dbfb91f94866ef88bf39b110cd5d5afbbeb159a697c",
+          "binds": "2055dd25e6c1fcd0f67243a216ae63b897476b6eee67920cc2b9f2a939a2af80",
           "cells": [
             "epic_boundary_invalid",
             "`<epic_step>`, human, intake, dispatch_narrow_review, cleanup, authority_recovery, repair_protocol_snapshot для задачи autosk-planned",
-            "project binding/path исправлены и повторный pre-side-effect assert PASS; resume только в шаг, где стоял park (origin); acceptance и anchor сверяются заново только в integrate_staging, чьи guards их читают, а CAS идемпотентен; verify_target перечитывает target после CAS, deliver_staging — completion predicate, и resume в deliver_staging повторяет передачу без сверки anchor (риск 8 в 04)"
+            "project binding/path исправлены и повторный pre-side-effect assert PASS; resume только в шаг, где стоял park (origin); acceptance и anchor сверяются заново в integrate_staging и deliver_staging, чьи guards их читают до CAS и до передачи профилю доставки (CAS идемпотентен, а передача не выполняется и не повторяется при сдвинутом anchor или устаревшей acceptance, ADR-108); verify_target перечитывает target, который CAS уже сдвинул, и ничего из этого не сверяет"
           ]
         },
         {
@@ -16626,7 +16741,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
+          "binds": "ae97f30231babf5d8486ff7d4198f9c69fae607c3269a659a7743636ac41c7cd",
           "cells": [
             "blocked_anchor, autosk-planned",
             "prepare_anchor_impact",
@@ -16744,7 +16859,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
+          "binds": "ae97f30231babf5d8486ff7d4198f9c69fae607c3269a659a7743636ac41c7cd",
           "cells": [
             "blocked_anchor, standalone Quick",
             "rebuild_code_anchor",
@@ -16765,7 +16880,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
+          "binds": "ae97f30231babf5d8486ff7d4198f9c69fae607c3269a659a7743636ac41c7cd",
           "cells": [
             "blocked_anchor, Ticket with parent",
             "rebuild_code_anchor",
@@ -16839,7 +16954,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
+          "binds": "ae97f30231babf5d8486ff7d4198f9c69fae607c3269a659a7743636ac41c7cd",
           "cells": [
             "blocked_anchor, Ticket pending already absorbed by parent",
             "rebuild_code_anchor",
@@ -17358,22 +17473,22 @@
           "covers": [
             "receipt_missing"
           ],
-          "binds": "58c29c64d9d6cb73369a7421074863beb1b39636c5d8139482b29b501a1dcd29",
+          "binds": "7caa2c9163812cf6e09890aef27aaa8d06b28534c7c979c9a8b65151b96a629b",
           "cells": [
             "receipt_missing",
             "apply_staging",
-            "durable integration receipt восстановлен для каждого применённого delta, lineage staging от recorded_target_base без неучтённых коммитов: commits planning ref до verified planning_head (первый stage) либо ровно один planning replay commit с receipt, затем только delta commits с receipt"
+            "durable integration receipt восстановлен для каждого применённого delta, lineage staging от recorded_target_base без неучтённых коммитов: commits planning ref до verified planning_head (первый stage) либо ровно один planning replay commit с receipt, затем только delta commits с receipt; receipt, потерянный падением между commit helper а и записью receipt, пишется из recipe apply (commit helper а на его expected_commit_oid — apply уже сделан, второго запроса нет); откат staging ref или чужой commit на нём восстанавливает человек — staging пересобран на recorded_target_base (ref создан заново в новом поколении записи staging), каждая delta заново под новой операцией со своими recipe и парой запроса; файл recipe, который не ручается за свой apply, переименовывается в <key>.recipe.quarantined: этот ключ отказывает и дальше, останавливается только он"
           ]
         },
         {
           "covers": [
             "environment_failure"
           ],
-          "binds": "2a7d48cd4334a862f2387db2f52476edfa4dca02b60e1814b639531e66ae9dbb",
+          "binds": "43b4cb128adf6d2339e394316a98afa35f57cd572cc2c397be14de67f5e8e277",
           "cells": [
             "environment_failure",
-            "aggregate_verify",
-            "окружение восстановлено; aggregate заново на exact staging commit/tree без model run; indeterminate не считается verdict"
+            "aggregate_verify, apply_staging",
+            "окружение восстановлено; aggregate заново на exact staging commit/tree без model run; indeterminate не считается verdict; в apply_staging — git-команда или recipe journal не смогли выполниться (диск, права): ничего не записано наполовину, verdict нет; apply возобновляется в apply_staging из своего recipe, если он записан (commit helper а на expected_commit_oid — apply уже сделан, второго запроса нет)"
           ]
         },
         {
@@ -17391,11 +17506,11 @@
           "covers": [
             "staging_moved_after_pass"
           ],
-          "binds": "3f2e8661b55f32b701a526d7737e86ba898c56c56d084225325084c0e2b8a9f5",
+          "binds": "67b5154692f962ed24aa3d03ffc3b8da9b86f56280be921a062e15a6082a6628",
           "cells": [
             "staging_moved_after_pass",
             "aggregate_verify or accept_staging",
-            "движение staging расследовано; staging заново проходит apply_staging: receipts и lineage от recorded_target_base (commits planning ref до verified planning_head либо один planning replay commit с receipt, затем delta commits) или пересборка staging на той же recorded_target_base (сдвинулся staging ref, а не target), затем aggregate; старый PASS не переносится"
+            "движение staging расследовано; staging заново проходит apply_staging: receipts и lineage от recorded_target_base (commits planning ref до verified planning_head либо один planning replay commit с receipt, затем delta commits) или пересборка staging на той же recorded_target_base человеком, как в receipt_missing (сдвинулся staging ref, а не target; новое поколение записи staging, каждая delta заново под новой операцией), затем aggregate; старый PASS не переносится"
           ]
         },
         {
@@ -17413,11 +17528,11 @@
           "covers": [
             "acceptance_stale"
           ],
-          "binds": "822507c7e38677fa33053eecd71899845fc0a63ab835754a1e9921c1bea2e0cd",
+          "binds": "07cebce343defbf7162580d9f1b8260dff747642ab1057401d424600f6ca18be",
           "cells": [
             "acceptance_stale",
-            "accept_staging or integrate_staging",
-            "новая acceptance current staging identity, aggregate record hash, target base и delivery profile digest"
+            "accept_staging, deliver_staging or integrate_staging",
+            "новая acceptance current staging identity, aggregate record hash, target base и delivery profile digest; в deliver_staging старый delivery receipt void, открытый PR или entry очереди отозван до hand-off новой acceptance"
           ]
         },
         {
@@ -18035,7 +18150,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
+          "binds": "ae97f30231babf5d8486ff7d4198f9c69fae607c3269a659a7743636ac41c7cd",
           "cells": [
             "BLOCKED_ANCHOR, Planned",
             "prepare_anchor_impact",
@@ -18095,7 +18210,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
+          "binds": "ae97f30231babf5d8486ff7d4198f9c69fae607c3269a659a7743636ac41c7cd",
           "cells": [
             "BLOCKED_ANCHOR, standalone Quick",
             "rebuild_code_anchor",
@@ -18115,7 +18230,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
+          "binds": "ae97f30231babf5d8486ff7d4198f9c69fae607c3269a659a7743636ac41c7cd",
           "cells": [
             "BLOCKED_ANCHOR, Ticket with parent",
             "rebuild_code_anchor",
@@ -18178,7 +18293,7 @@
           "covers": [
             "blocked_anchor"
           ],
-          "binds": "8ab238d8e34c39ed90a9e57c01bde789dd2257379e31843139c61daece71d43f",
+          "binds": "ae97f30231babf5d8486ff7d4198f9c69fae607c3269a659a7743636ac41c7cd",
           "cells": [
             "Parent absorbed live Ticket anchor before suspension",
             "rebuild_code_anchor",
@@ -18602,11 +18717,11 @@
             "delta_stale",
             "receipt_missing"
           ],
-          "binds": "128e0d6b362452730e9d3665dcd8fc9c6777de87b8078d2134793f8c23771df2",
+          "binds": "412d4d5d3c4d01ac0cd250daa2db243bfc02abe392f4f4c90407c5ea0ef361cd",
           "cells": [
             "Staging apply: delta устарела или нет receipt",
             "apply_staging",
-            "delta перепроверена против текущей staging base, receipt и lineage восстановлены; staging и target не двигались"
+            "delta перепроверена против текущей staging base, receipt (из recipe apply) и lineage восстановлены; staging и target не двигались"
           ]
         },
         {
@@ -18615,11 +18730,11 @@
             "environment_failure",
             "staging_moved_after_pass"
           ],
-          "binds": "bb6dc301f0a875e1cd7a609d4d23d24b2dfe49c391c5de1498c492f264eb9f07",
+          "binds": "d399cec43f0b50dc665f7b35b71e7a7321e3180d3d3c0892ecb7e4d75285c881",
           "cells": [
             "Aggregate не привязан к staging: окружение, void binding, staging сдвинут после PASS",
-            "aggregate_verify, accept_staging",
-            "aggregate заново на exact current staging commit/tree без model run; staging, сдвинутый после PASS, сначала заново проходит apply_staging (receipts и lineage); PASS к другому дереву не переносится"
+            "aggregate_verify, accept_staging, apply_staging",
+            "aggregate заново на exact current staging commit/tree без model run; окружение в apply_staging — apply возобновляется из своего recipe, без model run (commit helper а на expected_commit_oid — apply уже сделан); staging, сдвинутый после PASS, сначала заново проходит apply_staging (receipts и lineage); PASS к другому дереву не переносится"
           ]
         },
         {
@@ -18627,10 +18742,10 @@
             "acceptance_missing",
             "acceptance_stale"
           ],
-          "binds": "95c59a39fe792465264e5f4f67d3ade905bc02d44fb1bccd12550b69dab93305",
+          "binds": "bffd6534e35ee45a9eb5d95c6fe2271d90d625ba177aafbb86e9c457ea0237d8",
           "cells": [
             "Staging acceptance отсутствует или устарела",
-            "accept_staging, integrate_staging",
+            "accept_staging, deliver_staging, integrate_staging",
             "человек на остановке принимает exact staging identity, подписывая payload IntegrationAuthorizationRecord, составленного до вопроса; auto-policy остановку не пропускает (ADR-103); target до этого не двигается"
           ]
         },
@@ -18669,7 +18784,7 @@
       ]
     }
   ],
-  "canonical_digest": "2c079deacbd6352eab7544b1e4957624cb877584e539d9e9ec45a2ab67284c78",
+  "canonical_digest": "df0fb82c4a456798bf8849e9a1e2ba97655d783ccb8eeb890242f81b09c681e6",
   "external_operations": [
     {
       "status": "cancel",

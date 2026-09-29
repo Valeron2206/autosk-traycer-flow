@@ -13,13 +13,25 @@
  * `expected_old_mismatch` and what each ref holds now.
  *
  * It refuses, like the helper, a ref outside the helper's grammar. Nothing in
- * `src/` can reach this file; the inventory test in
+ * The request carries the pair the daemon-side intent needs (02 §2), and a request without it is refused
+ * like the helper would refuse it. `AUTOSK_TEST_HELPER_INTENTLESS=1` lifts that one check, so that a test written
+ * for the behavior of a driver that predates the pair can be run against that driver's code and fail at its own
+ * assertion rather than at this refusal (the review-fix round of debt 12g used it for its red runs); it is never set
+ * by a test. The reflog message is the helper's exact one, `autosk-flow staging <owner_operation_id>`.
+ *
+ * Nothing in `src/` can reach this file; the inventory test in
  * `test/runtime-delta-driver.test.mjs` keeps every `update-ref` in `src/` inside
  * `swapTarget`, the target-CAS mechanics the daemon's adapter carries.
  */
 import { execFile } from "node:child_process";
 
-import { PROTECTED_REF } from "../../src/host/ref-custody.mjs";
+import { PROTECTED_REF, custodyIdentity } from "../../src/host/ref-custody.mjs";
+
+/**
+ * The operation identity a test hands a driver that does not derive its own (debt 12g): one owner for the
+ * test's operation and one request per action, as `custodyIdentity` gives them.
+ */
+export const identityFor = (action, operation = "test-operation") => custodyIdentity(operation, action);
 
 const ENV = (cwd) => ({
   PATH: process.env.PATH,
@@ -62,11 +74,17 @@ export function gitRefCustody(cwd) {
   const requests = [];
   async function answer(request) {
     requests.push(request);
+    // The daemon-side intent requires the pair (02 §2): a request without it is no request the helper is asked.
+    for (const field of ["owner_operation_id", "request_id"]) {
+      if (typeof request[field] !== "string" && process.env.AUTOSK_TEST_HELPER_INTENTLESS !== "1") throw new Error(`the helper's intent needs ${field}`);
+    }
     for (const update of request.ref_updates) {
       if (!PROTECTED_REF.test(update.ref)) throw new Error(`the helper writes no ref outside its grammar: ${update.ref}`);
     }
     const stdin = `${request.ref_updates.map(line).join("\n")}\n`;
-    const result = await run(cwd, ["update-ref", "--create-reflog", "--stdin"], stdin);
+    const staging = request.ref_updates.every((update) => /\/staging$/u.test(update.ref));
+    const message = `${staging ? "autosk-flow staging" : "autosk-flow publish"} ${request.owner_operation_id ?? "unnamed"}`;
+    const result = await run(cwd, ["update-ref", "--create-reflog", "-m", message, "--stdin"], stdin);
     if (result.code === 0) {
       return {
         action: request.action,

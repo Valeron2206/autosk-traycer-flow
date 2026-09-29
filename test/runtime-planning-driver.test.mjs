@@ -25,7 +25,7 @@ import {
   writeCommitObject,
 } from "../src/host/planning-driver.mjs";
 import { readRef, reflogDepth } from "../src/host/staging-driver.mjs";
-import { gitRefCustody } from "./support/git-ref-custody.mjs";
+import { gitRefCustody, identityFor } from "./support/git-ref-custody.mjs";
 
 const execFileAsync = promisify(execFile);
 const code = (name) => (error) => error.code === name;
@@ -118,7 +118,7 @@ test("a publication is written, advanced and verified, in that order", async (t)
     "cas_advance_ref",
   );
 
-  const advanced = await advanceRef(git, { custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive });
+  const advanced = await advanceRef(git, { identity: identityFor("advance_planning"), custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive });
   assert.equal(advanced.advanced, true);
   assert.equal(await readRef(git, PLANNING_REF), commit.oid);
 
@@ -248,7 +248,7 @@ test("a ref somebody else moved is not where this operation left it", async (t) 
     "planning_ref_foreign_movement",
   );
   // And the CAS refuses, so nothing overwrites what they did.
-  const attempt = await advanceRef(git, { custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive });
+  const attempt = await advanceRef(git, { identity: identityFor("advance_planning"), custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive });
   assert.equal(attempt.advanced, false);
   assert.equal(await readRef(git, PLANNING_REF), foreign.oid);
 });
@@ -329,20 +329,21 @@ test("advancing the planning ref is a request to the helper that verifies the li
   // request is `init`, a create at an expected-absent ref.
   const { git, parent, tree, keepalive, custody } = await repository(t);
   const commit = await writeCommitObject(git, { tree, parent, payloadKind: "artifact", trailers, identity });
-  await advanceRef(git, { custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive });
+  await advanceRef(git, { identity: identityFor("advance_planning"), custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive });
   const fresh = `refs/autosk/epics/${"d".repeat(64)}/planning`;
-  const created = await advanceRef(git, { custody, ref: fresh, expectedParent: null, commit: parent });
+  const created = await advanceRef(git, { identity: identityFor("init"), custody, ref: fresh, expectedParent: null, commit: parent });
   assert.equal(created.advanced, true);
   assert.equal(created.expected_parent, null);
   assert.deepEqual(JSON.parse(JSON.stringify(custody.requests)), [
     {
       action: "advance_planning",
+      ...identityFor("advance_planning"),
       ref_updates: [
         { operation: "verify", ref: KEEPALIVE_REF, expected_old_oid: parent, new_oid: parent },
         { operation: "update", ref: PLANNING_REF, expected_old_oid: parent, new_oid: commit.oid },
       ],
     },
-    { action: "init", ref_updates: [{ operation: "update", ref: fresh, expected_old_oid: null, new_oid: parent }] },
+    { action: "init", ...identityFor("init"), ref_updates: [{ operation: "update", ref: fresh, expected_old_oid: null, new_oid: parent }] },
   ]);
   assert.equal(await readRef(git, fresh), parent);
   assert.equal(await reflogDepth(git, fresh), 1);
@@ -352,7 +353,7 @@ test("a keepalive that moved refuses the whole advance, so the planning ref stay
   const { git, parent, tree, custody } = await repository(t);
   const commit = await writeCommitObject(git, { tree, parent, payloadKind: "artifact", trailers, identity });
   const stale = { ref: KEEPALIVE_REF, oid: commit.oid };
-  const attempt = await advanceRef(git, { custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive: stale });
+  const attempt = await advanceRef(git, { identity: identityFor("advance_planning"), custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive: stale });
   assert.equal(attempt.advanced, false);
   assert.equal(attempt.observed, parent);
   assert.equal(await readRef(git, PLANNING_REF), parent);
@@ -363,22 +364,30 @@ test("with no helper the planning ref is not advanced and the host writes nothin
   const commit = await writeCommitObject(git, { tree, parent, payloadKind: "artifact", trailers, identity });
   const depth = await reflogDepth(git, PLANNING_REF);
   await assert.rejects(
-    () => advanceRef(git, { ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive }),
+    () => advanceRef(git, { identity: identityFor("advance_planning"), ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive }),
     code("planning_ref_capability_missing"),
   );
   assert.equal(await readRef(git, PLANNING_REF), parent);
   assert.equal(await reflogDepth(git, PLANNING_REF), depth);
 });
 
+test("an advance made under no operation identity is refused before any request (debt 12g)", async (t) => {
+  const { git, parent, tree, keepalive, custody } = await repository(t);
+  const commit = await writeCommitObject(git, { tree, parent, payloadKind: "artifact", trailers, identity });
+  await assert.rejects(() => advanceRef(git, { custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive }), code("cas_conflict"));
+  await assert.rejects(() => advanceRef(git, { custody, ref: PLANNING_REF, expectedParent: null, commit: commit.oid }), code("cas_conflict"));
+  assert.equal(custody.requests.length, 0);
+});
+
 test("an advance with no keepalive, or outside the helper's grammar, is refused before any request", async (t) => {
   const { git, parent, tree, keepalive, custody } = await repository(t);
   const commit = await writeCommitObject(git, { tree, parent, payloadKind: "artifact", trailers, identity });
   await assert.rejects(
-    () => advanceRef(git, { custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid }),
+    () => advanceRef(git, { identity: identityFor("advance_planning"), custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid }),
     code("cas_conflict"),
   );
   await assert.rejects(
-    () => advanceRef(git, { custody, ref: "refs/autosk/planning/e-1", expectedParent: parent, commit: commit.oid, keepalive }),
+    () => advanceRef(git, { identity: identityFor("advance_planning"), custody, ref: "refs/autosk/planning/e-1", expectedParent: parent, commit: commit.oid, keepalive }),
     code("cas_conflict"),
   );
   assert.equal(custody.requests.length, 0);
@@ -401,7 +410,7 @@ test("a SHA-256 repository publishes the same way: its ref and reflog are read, 
   const commit = await writeCommitObject(git, { tree, parent, payloadKind: "artifact", trailers, identity });
   assert.equal(commit.oid.length, 64);
   assert.equal(await observeObject(git, { recordedOid: commit.oid, expectedBytes: commit.bytes }), "matching");
-  const advanced = await advanceRef(git, { custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive });
+  const advanced = await advanceRef(git, { identity: identityFor("advance_planning"), custody, ref: PLANNING_REF, expectedParent: parent, commit: commit.oid, keepalive });
   assert.deepEqual({ advanced: advanced.advanced, observed: advanced.observed, reflog_before: advanced.reflog_before },
     { advanced: true, observed: commit.oid, reflog_before: 1 });
   const after = await observeRef(git, { ref: PLANNING_REF, expectedParent: parent, expectedCommit: commit.oid, reflogBefore: before });

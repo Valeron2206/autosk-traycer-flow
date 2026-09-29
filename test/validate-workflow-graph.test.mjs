@@ -1352,13 +1352,17 @@ test("the quantity rule binds the cap's predicates only, not every description n
   // 321 since debt 11e removed target_moved's park and resume, cond_445 and
   // cond_448, both of this population; 322 since debt 12c added cond_460,
   // the full panel's stop at the review cap, whose `park.reason=` names a word
-  // outside its reads as its narrow sibling cond_135's does).
+  // outside its reads as its narrow sibling cond_135's does; 324 since debt 12g
+  // added cond_461 and cond_462, deliver_staging's re-read of the anchor and the
+  // acceptance, whose descriptions name words outside their reads the same way;
+  // 325 since the review of 12g added cond_463, the merged-unaccepted stop; 326 since the narrow
+  // re-review of 12g added cond_464, the environment failure at apply_staging).
   const graph = document();
   const vocabulary = new Set(graph.predicates.flatMap((entry) => entry.reads));
   const atBoundary = (word) => new RegExp(`(?<![A-Za-z0-9_])${word}(?![A-Za-z0-9_])`, "u");
   const broad = graph.predicates.filter((entry) =>
     [...vocabulary].some((word) => !entry.reads.includes(word) && atBoundary(word).test(entry.description)));
-  assert.equal(broad.length, 322, "the broad-rule population moved — remeasure before blaming the check");
+  assert.equal(broad.length, 326, "the broad-rule population moved — remeasure before blaming the check");
   assert.deepEqual(
     validateGraph(graph, schema).filter((message) => message.startsWith("graph_cap_quantity_undeclared")),
     [],

@@ -57,6 +57,11 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     },
+    "generation": {
+      "description": "The count of stagings this record has made, from 0 for the first: createStaging and cleanupStaging ask the helper under a pair derived from it, so a rebuild or a re-stage, which creates the ref again, asks under a pair of its own and not the pair of a request that already committed (epic-staging.md section 7, ADR-108). Absent on a record that has only ever staged once; a re-staged record carries it, and it is at least 1.",
+      "type": "integer",
+      "minimum": 0
+    },
     "receipts": {
       "type": "array",
       "maxItems": 2048,

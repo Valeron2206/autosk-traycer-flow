@@ -109,6 +109,12 @@ export function validateStaging(state, schema) {
     errors.push("a re-staged record names the planning replay receipt that binds its first commit");
   }
 
+  // A re-stage creates the staging ref again, and a create that re-sent the pair of the one before it would create
+  // nothing (the daemon answers a repeated request from its journal): a re-staged record is in a later generation.
+  if (state.planning_replay_receipt_sha256 !== undefined && !(state.generation >= 1)) {
+    errors.push("a re-staged record is in generation 1 or later: its staging asks under a pair of its own");
+  }
+
   const ticketIds = state.receipts.map((receipt) => receipt.ticket_id);
   if (new Set(ticketIds).size !== ticketIds.length) {
     errors.push("a Ticket has more than one integration receipt");
