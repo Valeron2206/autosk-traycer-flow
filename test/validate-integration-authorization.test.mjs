@@ -496,7 +496,7 @@ test("the acceptance class is keyed by both kinds of acceptance request, one rul
     "scripts/build-panel-package.mjs": read("scripts/build-panel-package.mjs"),
   };
   for (const [file, text] of Object.entries(live)) {
-    assert.doesNotMatch(text, /An Epic's own integration acceptance|which the Epic's own acceptance|Собственная приёмка интеграции Epic|собственная приёмка Epic не двигает|every answer to any acceptance packet of the Epic/u, file);
+    assert.doesNotMatch(text, /An Epic's own integration acceptance|which the Epic's own acceptance|Собственная приёмка интеграции Epic|собственная приёмка Epic не двигает|every answer to any acceptance packet of the Epic|сравнивает only current Epic projection|compares only relevant current projection \+ Epic heads|compares the Epic's authority projection/u, file);
   }
   // Both scope shapes are ones the schema admits, and both kinds are parks the graph has.
   const scopePattern = new RegExp(JSON.parse(read(SCHEMA_PATH)).properties.scope_id.pattern, "u");
@@ -507,6 +507,48 @@ test("the acceptance class is keyed by both kinds of acceptance request, one rul
   assert.match(adr, /R9-7/u);
   assert.match(adr, /`integration_authorization_required` на `accept`/u);
   assert.match(adr103(), /Изменено ADR-112/u);
+});
+
+test("what the CAS compares is the scope's projection and heads, and #9 names both acceptance stops (R9-7; review L1)", () => {
+  const guard = read("02-architecture.md").split("\n").find((line) => line.startsWith("Authority/dependency/user-instruction/correction appends")) ?? "";
+  const authorityGuard = read("03-technical-plan.md").split("\n").find((line) => line.startsWith("`authorityGuard(expected_relevant_authority_projection_hash")) ?? "";
+  // What the CAS compares is the scope's projection and heads (review L1), and
+  // #9's list of predicates names Quick's stop as well as the Epic's.
+  assert.match(guard, /сравнивает only current projection scope so unrelated record не stales it/u);
+  assert.match(authorityGuard, /then compares only relevant current projection \+ the scope's heads/u);
+  assert.match(obligation(9), /compares the scope's authority projection and dependency\/intent heads/u);
+  assert.match(obligation(9), /the acceptance stops \(`acceptance_missing` at `accept_staging`, `integration_authorization_required` at `accept`\) the decision queue's packets answer/u);
+});
+
+test("the Quick rows that compare heads say what the Epic row says: the heads in force are ones the scope's own acceptance does not move (R9-7; review L2)", () => {
+  // Review L2: the Quick path compares heads at cond_360 (after the acceptance)
+  // and cond_364 (`integrateApproved`), so its rows say, as cond_441 does for
+  // an Epic, that the heads in force are the ones the scope's own acceptance
+  // does not move; the same words stand in 03 §2.
+  const clause = /без своей приёмки scope \(ADR-103, ADR-112\)/u;
+  assert.match(described().cond_360, clause);
+  assert.match(described().cond_364, clause);
+  assert.match(described().cond_441, /heads в силе без своей приёмки Epic \(ADR-103\)/u);
+  const rows = read("03-technical-plan.md").split("\n");
+  assert.match(rows.find((line) => line.startsWith("| accept | resume --to integrate, signed `IntegrationAuthorizationRecord` exact Quick run")) ?? "", clause);
+  assert.match(rows.find((line) => line.startsWith("| integrate | daemon `integrateApproved(")) ?? "", clause);
+});
+
+test("the class is keyed by the request's own park_reason, and the Quick packet's shape is named as deferred with its owner (R9-7; review L4)", () => {
+  const binds = section(read(CONTRACT_PATH), "## 3.", "## 4.");
+  const two = section(read("01-core-flows.md"), "### Согласование решений человеком", "## 3. ");
+  const guard = read("02-architecture.md").split("\n").find((line) => line.startsWith("Authority/dependency/user-instruction/correction appends")) ?? "";
+  const authorityGuard = read("03-technical-plan.md").split("\n").find((line) => line.startsWith("`authorityGuard(expected_relevant_authority_projection_hash")) ?? "";
+  // Review L4: the key is the request's own park_reason, since the graph parks
+  // each of these reasons at exactly one step; a packet has no field for the
+  // step, and Quick's `accept` is not among its row's resume targets.
+  assert.match(binds, /which is the request's own `park_reason`/u);
+  for (const text of [two, guard, authorityGuard, obligation(4)]) assert.match(text, /park_reason/u);
+  const seven = section(read(CONTRACT_PATH), "## 7.");
+  assert.match(seven, /a Quick run's acceptance packet[^.]*`quick_task_id` in place of `epic_id`[^.]*#35/u);
+  assert.match(obligation(35), /a Quick run's acceptance packet[^.]*`quick_task_id` in place of `epic_id`/u);
+  // The gap is real today, and the deferral goes when the schema admits the packet.
+  assert.equal(JSON.parse(read("resources/human-decision/human-decision-request.schema.json")).properties.epic_id.type, "string");
 });
 
 test("the validator holds the two request kinds to the graph and the class to the contract and the matrix (R9-7)", () => {
@@ -536,6 +578,90 @@ test("the validator holds the two request kinds to the graph and the class to th
   assert.match(errors((parts) => { four(parts).implementation_obligation_before_mvp = four(parts).implementation_obligation_before_mvp.replaceAll("`acceptance_missing` at `accept_staging`", "an Epic packet"); }).join("\n"), /#4[^\n]*acceptance_missing/u);
   // And it is part of the design's validation, so the CLI reports it.
   assert.ok(validateDesign({ ...files, [CONTRACT_PATH]: files[CONTRACT_PATH].replace(quick, "a Quick packet") }).some((message) => /integration_authorization_required/u.test(message)));
+});
+
+test("the validator holds the class's whole key clause in §3, and the graph's acceptance stops to the table (R9-7; review L3)", () => {
+  // The first check matched a substring anywhere in the contract, so a rewritten
+  // kind (a negation that kept the words), a clause moved out of §3, or a
+  // graph step whose reason changed all passed the validator and 143 tests.
+  assert.equal(typeof validator.acceptanceRequestErrors, "function");
+  assert.equal(typeof validator.acceptanceStops, "function");
+  const errors = (mutate) => {
+    const parts = { graph: graph(), contract: read(CONTRACT_PATH), matrix: matrix() };
+    mutate(parts);
+    return validator.acceptanceRequestErrors(parts.graph, parts.contract, parts.matrix);
+  };
+  assert.deepEqual(errors(() => {}), []);
+  const clause = (contract) => {
+    const start = contract.indexOf("keys the class by");
+    return contract.slice(start, contract.indexOf("never by its payload", start) + "never by its payload".length);
+  };
+  const shipped = clause(read(CONTRACT_PATH));
+  assert.match(shipped, /^keys the class by the kind of request the decision answers, which is the request's own `park_reason`/u);
+  // A negation that keeps the words is refused: the clause is held whole.
+  assert.match(errors((parts) => { parts.contract = parts.contract.replace(shipped, shipped.replace("or a Quick run's packet parked with", "or, not a Quick run's, a packet parked with")); }).join("\n"), /§3 does not state the key clause/u);
+  assert.match(errors((parts) => { parts.contract = parts.contract.replace("never by its payload", "by its payload"); }).join("\n"), /§3 does not state the key clause/u);
+  // A sentence beside the clause that puts a kind outside the class is refused.
+  assert.match(errors((parts) => { parts.contract = parts.contract.replace("Every other decision is outside the class and counts:", "A Quick run's acceptance packet is outside the class and counts. Every other decision is outside the class and counts:"); }).join("\n"), /outside the class/u);
+  // The clause moved to §7 no longer satisfies §3.
+  const moved = errors((parts) => {
+    const seven = parts.contract.indexOf("## 7.");
+    parts.contract = parts.contract.replace(shipped, "keys the class by the payload").slice(0, seven) + parts.contract.slice(seven) + `\n${shipped}\n`;
+  }).join("\n");
+  assert.match(moved, /§3 does not state the key clause/u);
+  // Each kind's reason occurs once in §3, inside the clause.
+  assert.match(errors((parts) => { parts.contract = parts.contract.replace("Every other decision is outside the class and counts:", "Every other decision — not `acceptance_missing` — is outside the class and counts:"); }).join("\n"), /acceptance_missing[^\n]*once/u);
+  // The graph: the step parks the reason, and only there.
+  const step = (parts, name) => parts.graph.steps.find((entry) => entry.name === name);
+  assert.match(errors((parts) => { step(parts, "accept").no_transition_reason = "blocked_anchor"; }).join("\n"), /accept does not park integration_authorization_required/u);
+  assert.match(errors((parts) => { parts.graph.steps = parts.graph.steps.filter((entry) => entry.name !== "accept"); }).join("\n"), /no step accept/u);
+  assert.match(errors((parts) => { parts.graph.recovery.find((row) => row.reason === "acceptance_missing").parks_at = ["accept_staging", "accept"]; }).join("\n"), /acceptance_missing[^\n]*exactly at accept_staging/u);
+  assert.match(errors((parts) => { parts.graph.recovery.find((row) => row.reason === "integration_authorization_required").parks_at = ["accept", "integrate"]; }).join("\n"), /integration_authorization_required[^\n]*exactly at accept/u);
+  // A third stop that asks for the record is a kind the table must key.
+  assert.match(errors((parts) => {
+    step(parts, "deliver_staging").no_transition_reason = "acceptance_stale";
+    parts.graph.recovery.find((row) => row.reason === "acceptance_stale").parks_at = ["deliver_staging"];
+    parts.graph.recovery.find((row) => row.reason === "acceptance_stale").required_state += " The packet presents the IntegrationAuthorizationRecord.";
+  }).join("\n"), /deliver_staging[^\n]*acceptance_stale[^\n]*no ACCEPTANCE_REQUESTS kind/u);
+  // The shipped graph's stops are exactly the table.
+  assert.deepEqual(validator.acceptanceStops(graph()).map((stop) => [stop.reason, stop.step]).sort(), validator.ACCEPTANCE_REQUESTS.map((kind) => [kind.reason, kind.step]).sort());
+  // #4's clause is held whole too.
+  const four = (parts) => parts.matrix.records.find((record) => record.issue_number === 4);
+  assert.match(errors((parts) => { four(parts).implementation_obligation_before_mvp = four(parts).implementation_obligation_before_mvp.replace("or a Quick run's parked with", "or, not a Quick run's, parked with"); }).join("\n"), /#4[^\n]*key clause/u);
+  // #9 names both stops.
+  const nine = (parts) => parts.matrix.records.find((record) => record.issue_number === 9);
+  assert.match(errors((parts) => { nine(parts).implementation_obligation_before_mvp = nine(parts).implementation_obligation_before_mvp.replaceAll("integration_authorization_required", "a_quick_stop"); }).join("\n"), /#9[^\n]*integration_authorization_required/u);
+});
+
+test("the records say what they did: ADR-112's status and history, the notes on the ADRs it amends, and the recovery row (R9-10; review L5, nits)", () => {
+  const decisions = read("04-decisions.md");
+  const adr = section(decisions, "## ADR-112:", "\n## ");
+  // The field entered with ADR-069 and ADR-096 composed it; ADR-103 changed its meaning.
+  assert.doesNotMatch(adr, /введённое ADR-096/u);
+  assert.match(adr, /имя поля ввёл ADR-069/u);
+  // The history that keeps the old name is listed whole.
+  const kept = /История сохраняет прежнее имя как было: ([^.]*)\./u.exec(adr)?.[1] ?? "";
+  for (const name of ["ADR-023", "ADR-091", "ADR-096", "ADR-103", "раундов 7, 8 и 9", "журнал передачи"]) assert.ok(kept.includes(name), name);
+  // The notes follow ADR-103's convention.
+  for (const number of ["023", "096"]) {
+    const older = section(decisions, `## ADR-${number}:`, "\n## ");
+    assert.match(older, /^- Изменено ADR-112: /mu, number);
+  }
+  assert.match(section(decisions, "## ADR-023:", "\n## "), /Изменено ADR-112[^\n]*previous_scope_authorization_hash/u);
+  // ADR-103's note says what IA §3 held: it already said the scope's own.
+  assert.doesNotMatch(adr103(), /Изменено ADR-112[^\n]*IA §3[^\n]*собственная приёмка Epic/u);
+  // No test pins the worked digest; the example moved and a test recomputes it.
+  assert.doesNotMatch(adr, /digest worked example в тесте примера staging пересчитан/u);
+  assert.match(adr, /файл примера staging изменился, тест его пересчитывает/u);
+  // 03's recovery row says what the graph does with a Quick run.
+  const row = read("03-technical-plan.md").split("\n").find((line) => line.startsWith("| authority_recovery | integration authorization file/head")) ?? "";
+  assert.doesNotMatch(row, /or human integration_authorization_required/u);
+  assert.match(row, /no `authority_recovery` edge carries/u);
+  const flows = read("docs/cloud-agent-priming.md");
+  const entry = flows.slice(flows.indexOf("- 2026-09-29: debt 13d"));
+  assert.match(entry, /Review \(independent, on `27a00dc`, a fresh process\): no Critical, High or Medium; five Low and two nits, all addressed test-first in a follow-up commit/u);
+  assert.match(entry, /No further re-review: the review raised only Lows and nits/u);
+  assert.doesNotMatch(entry, /Review: pending/u);
 });
 
 test("one name means one thing: the record's chain field is the previous record of the same scope, not the project's head (R9-10)", () => {

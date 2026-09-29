@@ -3064,7 +3064,7 @@
         "pending_anchor"
       ],
       "domain": "target_integration",
-      "description": "resume --to integrate, signed `IntegrationAuthorizationRecord` exact Quick run/candidate/target/base/single ref transition/tree/dependency digest current, Quick classification valid, pending_anchor отсутствует — integrate"
+      "description": "resume --to integrate, signed `IntegrationAuthorizationRecord` exact Quick run/candidate/target/base/single ref transition/tree/dependency digest current без своей приёмки scope (ADR-103, ADR-112), Quick classification valid, pending_anchor отсутствует — integrate"
     },
     {
       "id": "cond_361",
@@ -3102,7 +3102,7 @@
         "new_oid"
       ],
       "domain": "target_integration",
-      "description": "daemon `integrateApproved(expected_relevant_authority_projection_hash,expected_dependency_head,expected_intent_head,expected_digest,authorization_id,target,expected_old,new_oid)` под project mutex вернул success — cleanup"
+      "description": "daemon `integrateApproved(expected_relevant_authority_projection_hash,expected_dependency_head,expected_intent_head,expected_digest,authorization_id,target,expected_old,new_oid)` под project mutex сверил heads в силе без своей приёмки scope (ADR-103, ADR-112) и вернул success — cleanup"
     },
     {
       "id": "cond_365",
@@ -18784,7 +18784,7 @@
       ]
     }
   ],
-  "canonical_digest": "df0fb82c4a456798bf8849e9a1e2ba97655d783ccb8eeb890242f81b09c681e6",
+  "canonical_digest": "edb331b816fee8e07d486e3be37c3cc635b9764aa09cdd335cec9ae0457f7d63",
   "external_operations": [
     {
       "status": "cancel",

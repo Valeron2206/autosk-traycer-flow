@@ -8,19 +8,19 @@
     },
     {
       "path": "01-core-flows.md",
-      "sha256": "a4f2b4cb1c3dd3514647f812376834daf014f59283e4a43d2c15bef552b038a1"
+      "sha256": "327a71290b9475923061bd8e12835138bdc23e1fefad9a0695ee2aa4d549a78d"
     },
     {
       "path": "02-architecture.md",
-      "sha256": "0a36c78a988e64d88ea43c1eae277512a020513038168b7021d6759b42c4c9a5"
+      "sha256": "c6e7d2866e3d1f465a0ae0aba653173454b4b3ff025ad4d65035a48cf4ce01d8"
     },
     {
       "path": "03-technical-plan.md",
-      "sha256": "b0ed063024c338c1c573501a8380a195ee8837f80c2719e3b86ae863bd10d111"
+      "sha256": "7749191a6aa63524b5b296033a78ba42a520a16dafb05a0916bef84e7982bcab"
     },
     {
       "path": "04-decisions.md",
-      "sha256": "36449ffa5cac12a3087944269ec27acbd5b7f8a48cb38749c87ff4cbafdacb87"
+      "sha256": "3772965fbbeb62ddf8816bddd8cd906b54bbf3602394a29ad3c60f8b6ec03cd8"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -132,7 +132,7 @@
     },
     {
       "path": "docs/contracts/integration-authorization.md",
-      "sha256": "577173a429dc7b767243de3220ef58d67847a86e216e3d99a524c90cb177e177"
+      "sha256": "434d7d5ba4292ac440c1e1b8ffc76737ccea3e3804bcebd30de97cd5bf7fa09d"
     },
     {
       "path": "docs/contracts/material-decisions.md",
@@ -208,7 +208,7 @@
     },
     {
       "path": "docs/program-capability-matrix.md",
-      "sha256": "a25b2c2978842c37fcc8091e7f5d33125dae945a83c6dfc02b705f2e79eb229b"
+      "sha256": "cfa22c04e3837021b8b630a55138f708bfa3ad03c6d4b11d5a6c9462806dbff4"
     },
     {
       "path": "docs/traycer-parity-registry.md",
@@ -716,7 +716,7 @@
     },
     {
       "path": "resources/program-capabilities/matrix.v1.json",
-      "sha256": "6dfd3b750e2e69982cb8a02084d5340afbed3ab3e5d98b0b1728462c986e7d92"
+      "sha256": "376eabb98bc434c4f8de0f918dd6abc06fa46b7e20da2c0ad70bdb1ef47bf370"
     },
     {
       "path": "resources/project-instructions/project-instructions-lock.example.json",
@@ -932,7 +932,7 @@
     },
     {
       "path": "resources/workflow-graph/workflow-graph.v1.json",
-      "sha256": "1fb52780ea4b5b00b7cee1a4ab7c69f0848f4d42c9df1791592da73753c01761"
+      "sha256": "a433f2f73afea9754eafe4acde4183a6dddddaeb92a302b397804c6675016fb0"
     },
     {
       "path": "scripts/produce-refusals-refusal-vocabulary.cases.json",
@@ -955,7 +955,7 @@
       "sha256": "9cf28952c6e9d967ed82ace094ad72a3322001f3844b8369469f5864f8473d4e"
     }
   ],
-  "candidate_digest": "31e2df5d0a18bec13ee70656f70be3542b0fd1f909c352535538eb63d0162c46",
+  "candidate_digest": "bdb17e135ef365b6cfaf077fc274d5c50d48f0600d1bbe975014fbcaf57534a3",
   "dispositions": [
     {
       "issue": 3,
