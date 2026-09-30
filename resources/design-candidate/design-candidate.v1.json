@@ -20,7 +20,7 @@
     },
     {
       "path": "04-decisions.md",
-      "sha256": "3772965fbbeb62ddf8816bddd8cd906b54bbf3602394a29ad3c60f8b6ec03cd8"
+      "sha256": "ec38485827e40a5e4219a275e3651258a33f38e9a90810f586c5ec5e9db31c21"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -955,7 +955,7 @@
       "sha256": "9cf28952c6e9d967ed82ace094ad72a3322001f3844b8369469f5864f8473d4e"
     }
   ],
-  "candidate_digest": "bdb17e135ef365b6cfaf077fc274d5c50d48f0600d1bbe975014fbcaf57534a3",
+  "candidate_digest": "1430e2a747d913d7ba192cf386894b8674f913266d173dbf8c57f168582eda60",
   "dispositions": [
     {
       "issue": 3,
