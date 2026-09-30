@@ -122,7 +122,7 @@ Preflight отказывает любому model workflow без каждой �
 | `review_findings` | #16 | ADR-107 | review and findings for Panel and Code Review: the synthesis, the contest and its dispositions, the verdict's binding, the routing after a code verdict, the review waiver and the editorial exemption |
 | `sandbox_cleanup` | #13 | ADR-107 | the removal of a flow's sandboxes and snapshots at cleanup through safeProjectFs: whether the sandbox is dirty and whether force was asked |
 | `staging_aggregate` | #9 | ADR-107 | the Epic's staging: applying the approved deltas, the aggregate verification and its binding to the staging identity, staging moved after a PASS, and the aggregate remediation |
-| `target_integration` | #9 | ADR-107 | the final target compare-and-swap and what follows: the acceptance's binding to the staging identity, integrateApproved, foreign or indeterminate movement of the target, the read-back and Quick's integrate with its recovery, and the acceptance stop (acceptance_missing) the decision queue's packet answers, with the resume after a new acceptance record |
+| `target_integration` | #9 | ADR-107 | the final target compare-and-swap and what follows: the acceptance's binding to the staging identity, integrateApproved, foreign or indeterminate movement of the target, the read-back and Quick's integrate with its recovery, and the acceptance stops (`acceptance_missing` at `accept_staging`, `integration_authorization_required` at `accept`) the decision queue's packets answer, with the resume after a new acceptance record |
 | `tickets_manifest_validation` | #6 | ADR-107 | the Tickets manifest and its validation receipt: schema, canonical bytes, DAG, paths and the frozen tree, at validation, at freeze and at dispatch, and the fresh dispatch of the Ticket set from the validated manifest |
 | `verification_evidence` | #27 | ADR-107 | verification evidence: that it is present, well formed and bound to the candidate, that the runner did not fail, and that the checks passed |
 
@@ -220,5 +220,5 @@ npm run validate:capabilities
 
 Inventory digest: `9a5b76cb38138afe2aea39c04a15b5b967823c9163b408b9fe2f10fe566927a2`
 
-Matrix digest: `a6c28bd5d84cb48e9019a68045cbb5d4d7aa63ff0ff2333f2cf6eadeb0e50328`
+Matrix digest: `44d98c3c099e5eb8c1e51db5d6edf7af2ed934072d2931fe6fc128688b4253fe`
 

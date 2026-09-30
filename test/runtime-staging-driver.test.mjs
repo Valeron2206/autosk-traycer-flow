@@ -339,7 +339,7 @@ function authorizationFor(accepted) {
     relevant_authority_projection_hash: "4".repeat(64),
     dependency_head_hash: "5".repeat(64),
     intent_head_hash: "6".repeat(64),
-    previous_authorization_head_hash: null,
+    previous_scope_authorization_hash: null,
     expires_at: "2100-01-01T00:00:00Z",
     terminal_disposition: "active",
     issued_by: "user_decision_record",

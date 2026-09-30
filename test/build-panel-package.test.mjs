@@ -2464,9 +2464,11 @@ test("§5 names the acceptance rules no code computes, and measures that no v1 p
   const text = notClaimed((await build()).text);
   assert.match(text, phrase("- An acceptance does not move what it accepts, and its record chains within its scope: rules with owners that no code computes."));
   assert.match(text, phrase("the host takes the heads from its caller (`acceptanceFacts`) and the head a record chains from as the plan names it (`composeAuthorization`)"));
-  assert.match(text, phrase("is #4's for the daemon's heads and #9's for `integrateApproved`'s comparison, and the chain per scope under one head kept for integrity (the contract's §5) is #9's (ADR-103)"));
+  assert.match(text, phrase("is #4's for the daemon's heads and #9's for `integrateApproved`'s comparison, and the chain per scope under one head kept for integrity (the contract's §5) is #9's (ADR-103, ADR-112)"));
   // Review of 99fd30b (L3): the class, as the contract states it.
-  assert.match(text, phrase("every answer to any acceptance packet of the Epic, accept or refuse, re-asks included, and every `IntegrationAuthorizationRecord` of its scope"));
+  assert.match(text, phrase("every answer to any acceptance packet of the scope, accept or refuse, re-asks included, and every `IntegrationAuthorizationRecord` of it"));
+  // R9-7: the class is keyed by either kind of scope's acceptance request.
+  assert.match(text, phrase("keyed at commit by an Epic's packet parked with `acceptance_missing` at `accept_staging` or a Quick run's parked with `integration_authorization_required` at `accept`"));
   assert.match(text, phrase("v1 has one acceptance authority, the person's signature at `accept_staging`: every edge into `integrate_staging` or `deliver_staging` leaves `accept_staging` under a person's guard (`t_556`, `t_557`) or is that step's own retry (`t_563`, `t_573`), and `autoPolicyAcceptance`, the binding a pinned auto-policy is held to, has no caller outside tests, so no v1 path reaches it"));
   // Review of 99fd30b (M1): under the binding a policy adds no autonomy, and
   // the unattended acceptance is #28's to design, not the binding's to admit.
