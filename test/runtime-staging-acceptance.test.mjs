@@ -98,7 +98,7 @@ const PLAN = Object.freeze({
   runId: "run-0001",
   integrationPlanHash: hex("1"),
   classifierProofHash: hex("3"),
-  previousAuthorizationHeadHash: null,
+  previousScopeAuthorizationHash: null,
   expiresAt: "2026-09-10T10:00:00Z",
 });
 
@@ -620,14 +620,14 @@ test("the record is composed from the staging state, the facts and the plan befo
   for (const [field, value] of Object.entries(HEADS)) assert.equal(composed[field], value, field);
   assert.equal(composed.integration_plan_hash, hex("1"));
   assert.equal(composed.classifier_proof_hash, hex("3"));
-  assert.equal(composed.previous_authorization_head_hash, null);
+  assert.equal(composed.previous_scope_authorization_hash, null);
   assert.equal(composed.run_id, "run-0001");
   assert.equal(composed.record_id, "iar-0001");
   assert.equal(composed.expires_at, "2026-09-10T10:00:00Z");
   // Under squash the transition ends at the squash commit.
   const squash = { ...delivery, deliveryMode: "squash", targetCommit: { oid: oid("7"), recipe_sha256: "6".repeat(64) } };
   assert.equal(draft(current, squash).ref_transition.to_oid, oid("7"));
-  assert.equal(draft(current, delivery, { previousAuthorizationHeadHash: hex("8") }).previous_authorization_head_hash, hex("8"));
+  assert.equal(draft(current, delivery, { previousScopeAuthorizationHash: hex("8") }).previous_scope_authorization_hash, hex("8"));
 });
 
 test("a record cannot be composed from a plan or a state that does not say what it binds (debt 11b)", () => {
@@ -638,8 +638,8 @@ test("a record cannot be composed from a plan or a state that does not say what 
     { runId: "" },
     { integrationPlanHash: "1" },
     { classifierProofHash: undefined },
-    { previousAuthorizationHeadHash: "8" },
-    { previousAuthorizationHeadHash: undefined },
+    { previousScopeAuthorizationHash: "8" },
+    { previousScopeAuthorizationHash: undefined },
     { expiresAt: "tomorrow" },
     { expiresAt: undefined },
   ]) {

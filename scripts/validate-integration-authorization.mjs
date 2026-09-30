@@ -37,6 +37,116 @@ export const ACCEPTANCE_STEP = "accept_staging";
 export const ACCEPTANCE_EXITS = Object.freeze(["integrate_staging", "deliver_staging"]);
 
 /**
+ * The two kinds of request an acceptance answers, by which autoskd recognizes
+ * the excluded class at commit (§3; ADR-103, ADR-112). A decision is committed
+ * before the record it completes exists, so the class is keyed by the kind of
+ * request the decision answers — the request's own `park_reason`, which the
+ * graph parks at exactly one step — and never by its payload: an Epic's packet
+ * parked with `acceptance_missing` at `accept_staging`, or a Quick run's parked
+ * with `integration_authorization_required` at `accept`. Each kind belongs to
+ * one scope shape, the two the record's schema admits.
+ */
+export const ACCEPTANCE_REQUESTS = Object.freeze([
+  Object.freeze({ scope: "epic:<epic-id>", scope_of: "an Epic's scope", packet_of: "an Epic's", reason: "acceptance_missing", step: "accept_staging" }),
+  Object.freeze({ scope: "quick:<task-id>", scope_of: "a Quick run's scope", packet_of: "a Quick run's", reason: "integration_authorization_required", step: "accept" }),
+]);
+
+/** The issue that recognizes the class at commit: the daemon's heads are #4's. */
+export const ACCEPTANCE_CLASS_OWNER = 4;
+
+/** The issue that compares the heads at the CAS and owns Quick's `accept` step. */
+export const ACCEPTANCE_COMPARISON_OWNER = 9;
+
+/** The class's key clause as IA §3 states it, whole: a rewrite that keeps the words but changes the sense is not this text. */
+export function acceptanceKeyClause(requests = ACCEPTANCE_REQUESTS) {
+  const kinds = requests.map((request) => `${request.packet_of} packet parked with \`${request.reason}\` at \`${request.step}\` for ${request.scope_of} (\`${request.scope}\`)`);
+  return "keys the class by the kind of request the decision answers, which is the request's own `park_reason` — the graph parks each of these reasons at exactly one step, so a packet needs no field for the step — one rule for both kinds of scope (ADR-112): "
+    + `${kinds.join(", or ")}, never by its payload`;
+}
+
+/** The same two kinds as #4's obligation says them, whole. */
+export function acceptanceObligationClause(requests = ACCEPTANCE_REQUESTS) {
+  return requests
+    .map((request, index) => `${request.packet_of} ${index === 0 ? "packet " : ""}parked with \`${request.reason}\` at \`${request.step}\` (scope \`${request.scope}\`)`)
+    .join(", or ");
+}
+
+/**
+ * The graph's stops that ask for the record: a step whose park reason has a
+ * recovery row that presents the IntegrationAuthorizationRecord and parks at
+ * that step alone. Read from the graph, so a third such stop is found rather
+ * than left out of the table (review of 13d, L3).
+ */
+export function acceptanceStops(graph) {
+  const rows = new Map((graph?.recovery ?? []).map((row) => [row.reason, row]));
+  return (graph?.steps ?? []).flatMap((step) => {
+    const row = rows.get(step.no_transition_reason);
+    const asks = row !== undefined && /IntegrationAuthorizationRecord/u.test(String(row.required_state))
+      && (row.parks_at ?? []).length === 1 && row.parks_at[0] === step.name;
+    return asks ? [{ reason: row.reason, step: step.name }] : [];
+  });
+}
+
+/**
+ * Whether the class of §3 is keyed by both kinds of request, and each kind is
+ * one the graph parks (R9-7). 12b keyed it only for an Epic, so a Quick run's
+ * acceptance, asked at `accept` under `quick:<task-id>`, read literally moved
+ * the heads it accepts and went stale at `integrateApproved`. Nothing in the
+ * repository computes the class — it is autoskd's — so the contract states the
+ * key clause once, whole and inside §3, #4's obligation says it, #9's names
+ * both stops, and the graph has the park each kind is keyed by: at its step
+ * alone, as that step's own reason, and no other stop asks for the record.
+ */
+export function acceptanceRequestErrors(graph, contract, matrix) {
+  const errors = [];
+  const rows = new Map((graph?.recovery ?? []).map((row) => [row.reason, row]));
+  const records = matrix?.records ?? [];
+  const obligationOf = (issue) => String(records.find((record) => record.issue_number === issue)?.implementation_obligation_before_mvp ?? "");
+  const text = String(contract ?? "");
+  const start = text.indexOf("## 3.");
+  const binds = start < 0 ? "" : text.slice(start, text.indexOf("## 4.", start) < 0 ? undefined : text.indexOf("## 4.", start));
+  const occurrences = (haystack, needle) => haystack.split(needle).length - 1;
+  if (!binds.includes(acceptanceKeyClause())) {
+    errors.push(`${CONTRACT_PATH}: §3 does not state the key clause of the acceptance class, whole: "${acceptanceKeyClause()}" (ADR-112)`);
+  }
+  if (occurrences(binds, "outside the class") !== 1) {
+    errors.push(`${CONTRACT_PATH}: §3 says "outside the class" ${occurrences(binds, "outside the class")} times; only every other decision is outside it, once (ADR-112)`);
+  }
+  if (!obligationOf(ACCEPTANCE_CLASS_OWNER).includes(acceptanceObligationClause())) {
+    errors.push(`${MATRIX_PATH}: #${ACCEPTANCE_CLASS_OWNER} recognizes the acceptance class at commit and its obligation does not state the key clause, whole: "${acceptanceObligationClause()}" (ADR-112)`);
+  }
+  const steps = new Map((graph?.steps ?? []).map((step) => [step.name, step]));
+  for (const request of ACCEPTANCE_REQUESTS) {
+    const row = rows.get(request.reason);
+    if (occurrences(binds, `\`${request.reason}\``) !== 1) {
+      errors.push(`${CONTRACT_PATH}: §3 names ${request.reason} ${occurrences(binds, `\`${request.reason}\``)} times; it names it once, in the key clause (ADR-112)`);
+    }
+    if (!row) {
+      errors.push(`${GRAPH_PATH}: ${request.reason} keys the acceptance class of ${request.scope} and has no recovery row`);
+    } else if (!(row.parks_at ?? []).includes(request.step)) {
+      errors.push(`${GRAPH_PATH}: ${request.reason} keys the acceptance class of ${request.scope} and does not park at ${request.step}`);
+    } else if (row.parks_at.length !== 1) {
+      errors.push(`${GRAPH_PATH}: ${request.reason} keys the acceptance class of ${request.scope} and must park exactly at ${request.step}, not at ${row.parks_at.join(", ")}: a packet has no field for the step`);
+    }
+    const step = steps.get(request.step);
+    if (!step) {
+      errors.push(`${GRAPH_PATH}: the graph has no step ${request.step}, where ${request.reason} keys the acceptance class of ${request.scope}`);
+    } else if (step.no_transition_reason !== request.reason) {
+      errors.push(`${GRAPH_PATH}: the step ${request.step} does not park ${request.reason} (its no_transition_reason is ${step.no_transition_reason ?? "none"}), which keys the acceptance class of ${request.scope}`);
+    }
+    if (!obligationOf(ACCEPTANCE_COMPARISON_OWNER).includes(request.reason)) {
+      errors.push(`${MATRIX_PATH}: #${ACCEPTANCE_COMPARISON_OWNER} compares the heads at the CAS and owns the acceptance stops, and its obligation does not name ${request.reason} (ADR-112)`);
+    }
+  }
+  for (const stop of acceptanceStops(graph)) {
+    if (!ACCEPTANCE_REQUESTS.some((request) => request.reason === stop.reason && request.step === stop.step)) {
+      errors.push(`${GRAPH_PATH}: ${stop.step} asks for the IntegrationAuthorizationRecord with ${stop.reason}, and no ACCEPTANCE_REQUESTS kind keys it (ADR-112)`);
+    }
+  }
+  return errors;
+}
+
+/**
  * The issue whose own post-v1 design work an unattended acceptance is — a
  * policy that accepts at the stop without the person (ADR-103): Autobuild,
  * whose run contract names an `approved_auto_policy`. v1 keeps
@@ -108,10 +218,10 @@ export function recordRefusals(record, { nowMs, scopeId, targetOid, headsBeforeS
     // one — its scope's head is the named record's own digest — and it is
     // `integrateApproved`'s, against a store this model does not read (IA §5).
     const head = Object.hasOwn(headsBeforeStore, record.scope_id) ? headsBeforeStore[record.scope_id] : null;
-    if (record.previous_authorization_head_hash !== head) {
+    if (record.previous_scope_authorization_hash !== head) {
       refusals.push({
         reason: "integration_authorization_head_mismatch",
-        detail: `chains from ${record.previous_authorization_head_hash}, the head of ${record.scope_id} is ${head}`,
+        detail: `chains from ${record.previous_scope_authorization_hash}, the head of ${record.scope_id} is ${head}`,
       });
     }
   }
@@ -318,6 +428,7 @@ export function validateDesign(files, { nowMs = Date.parse("2026-09-09T00:00:00Z
     errors.push(`${REFUSED_PATH}: the refused example produces only ${produced.size} refusal classes`);
   }
   errors.push(...acceptanceAuthorityErrors(JSON.parse(files[GRAPH_PATH]), JSON.parse(files[MATRIX_PATH])));
+  errors.push(...acceptanceRequestErrors(JSON.parse(files[GRAPH_PATH]), contract, JSON.parse(files[MATRIX_PATH])));
   return errors;
 }
 

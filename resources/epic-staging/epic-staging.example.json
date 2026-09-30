@@ -60,7 +60,7 @@
     "target_commit_recipe_sha256": "5c1d6a3a0f7e0b2d9e4c8b1a7f6e5d4c3b2a19087f6e5d4c3b2a190876543210",
     "decision_id": "dec-0042",
     "integration_authorization_id": "iar-0007",
-    "integration_authorization_sha256": "b8a8d257aea4b5e1a67ac757a2cb41107da28e4ce3dad54da6bcd48b33cfd549"
+    "integration_authorization_sha256": "f4f0dfb68a3b5d0671e5e3bb90fa0dd03b1260261c5e70d595566abc1b126085"
   },
   "post_cas": {
     "target_oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",

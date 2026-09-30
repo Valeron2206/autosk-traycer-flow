@@ -51,7 +51,7 @@ const AUTHORIZATION = Object.freeze({
   relevant_authority_projection_hash: "a".repeat(64),
   dependency_head_hash: "b".repeat(64),
   intent_head_hash: "c".repeat(64),
-  previous_authorization_head_hash: null,
+  previous_scope_authorization_hash: null,
   expires_at: "2026-09-10T00:00:00Z",
   terminal_disposition: "active",
   issued_by: "user_decision_record",

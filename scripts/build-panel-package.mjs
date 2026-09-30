@@ -1429,16 +1429,19 @@ ${mutation.modules.map((entry) => `| \`${entry.module}\` | \`${entry.test}\` | $
   \`clarify_alignment\`); its names and steps are #4's phase 3 as well (ADR-091,
   ADR-100).
 - An acceptance does not move what it accepts, and its record chains within its
-  scope: rules with owners that no code computes. No module here computes an
-  Epic's relevant authority projection, its dependency or intent head, or
+  scope: rules with owners that no code computes. No module here computes a
+  scope's relevant authority projection, its dependency or intent head, or
   \`integration_authorization_head\`: the host takes the heads from its caller
   (\`acceptanceFacts\`) and the head a record chains from as the plan names it
-  (\`composeAuthorization\`). That the Epic's own acceptance — every answer to
-  any acceptance packet of the Epic, accept or refuse, re-asks included, and
-  every \`IntegrationAuthorizationRecord\` of its scope — never enters those
-  heads (the integration-authorization contract, §3) is #4's for the daemon's
-  heads and #9's for \`integrateApproved\`'s comparison, and the chain per scope
-  under one head kept for integrity (the contract's §5) is #9's (ADR-103).
+  (\`composeAuthorization\`). That a scope's own acceptance — every answer to
+  any acceptance packet of the scope, accept or refuse, re-asks included, and
+  every \`IntegrationAuthorizationRecord\` of it, keyed at commit by an Epic's
+  packet parked with \`acceptance_missing\` at \`accept_staging\` or a Quick run's
+  parked with \`integration_authorization_required\` at \`accept\` — never enters
+  those heads (the integration-authorization contract, §3) is #4's for the
+  daemon's heads and #9's for \`integrateApproved\`'s comparison, and the chain per
+  scope under one head kept for integrity (the contract's §5) is #9's (ADR-103,
+  ADR-112).
   ${oneAuthority && policyCallers.length === 0
     ? `v1 has one acceptance authority, the person's signature at \`accept_staging\`:
   every edge into \`integrate_staging\` or \`deliver_staging\` leaves \`accept_staging\`

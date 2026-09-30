@@ -22,7 +22,7 @@
     "relevant_authority_projection_hash",
     "dependency_head_hash",
     "intent_head_hash",
-    "previous_authorization_head_hash",
+    "previous_scope_authorization_hash",
     "expires_at",
     "terminal_disposition",
     "user_decision_record_id",
@@ -132,7 +132,8 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     },
-    "previous_authorization_head_hash": {
+    "previous_scope_authorization_hash": {
+      "description": "The digest of the previous record of the same scope_id, not the project's integration_authorization_head; null for the scope's first (ADR-103, ADR-112).",
       "oneOf": [
         {
           "type": "string",
